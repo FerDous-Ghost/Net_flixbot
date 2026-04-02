@@ -36,9 +36,8 @@ export function setupBot() {
 
   async function checkAllChannels(userId: number): Promise<boolean> {
     for (const ch of CHANNELS) {
-      const chatId = ch.id || ch.url;
-      if (!chatId) continue;
-      const ok = await checkChannelMembership(userId, chatId);
+      if (!ch.id || ch.url.includes("/+")) continue;
+      const ok = await checkChannelMembership(userId, ch.id);
       if (!ok) return false;
     }
     return true;
