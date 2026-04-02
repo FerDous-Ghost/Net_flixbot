@@ -1111,21 +1111,47 @@ export function setupBot() {
   }
 
   function parseCookiesFromText(text: string): string[] {
+    let parsed: string[] = [];
+    const trimmedText = text.trim();
+    if (trimmedText.startsWith("{") || trimmedText.startsWith("[")) {
+      try {
+        const json = JSON.parse(trimmedText);
+        const extractFromJson = (obj: any): void => {
+          if (!obj) return;
+          if (typeof obj === "string") {
+            const c = cleanCookie(obj);
+            if (c.length >= 10) parsed.push(c);
+            return;
+          }
+          if (Array.isArray(obj)) { obj.forEach(extractFromJson); return; }
+          if (typeof obj === "object") {
+            for (const key of Object.keys(obj)) {
+              const lk = key.toLowerCase();
+              if (lk === "netflixid" || lk === "netflix_id" || lk === "cookie" || lk === "value" || lk === "token") {
+                const val = obj[key];
+                if (typeof val === "string") { const c = cleanCookie(val); if (c.length >= 10) parsed.push(c); }
+              } else {
+                extractFromJson(obj[key]);
+              }
+            }
+          }
+        };
+        extractFromJson(json);
+        if (parsed.length > 0) return [...new Set(parsed)];
+      } catch {}
+    }
     const lines = text.split(/[\n\r]+/);
     const cookies: string[] = [];
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.length < 10) continue;
       if (trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
-      const parts = trimmed.split(/[,\t|]+/);
-      for (const part of parts) {
-        const cleaned = cleanCookie(part);
-        if (cleaned.length >= 10) {
-          cookies.push(cleaned);
-        }
+      const cleaned = cleanCookie(trimmed);
+      if (cleaned.length >= 10) {
+        cookies.push(cleaned);
       }
     }
-    return cookies;
+    return [...new Set(cookies)];
   }
 
   interface NFCheckResult {
@@ -3518,16 +3544,25 @@ export function setupBot() {
             const fileLink = await bot.getFileLink(doc.file_id);
             const fileRes = await fetch(fileLink);
             let fileText = "";
-            if (fname.endsWith(".zip")) {
+            const isArchive = fname.endsWith(".zip") || fname.endsWith(".rar") || fname.endsWith(".7z") || fname.endsWith(".gz") || fname.endsWith(".tar");
+            if (isArchive) {
               const arrayBuf = await fileRes.arrayBuffer();
-              const zip = new AdmZip(Buffer.from(arrayBuf));
-              const entries = zip.getEntries();
-              const allFiles = entries.filter(e => !e.isDirectory);
-              for (const entry of allFiles) {
-                const content = entry.getData().toString("utf8");
-                if (content.length > 10) fileText += content + "\n";
+              try {
+                const zip = new AdmZip(Buffer.from(arrayBuf));
+                const entries = zip.getEntries();
+                const allFiles = entries.filter(e => !e.isDirectory);
+                for (const entry of allFiles) {
+                  try {
+                    const content = entry.getData().toString("utf8");
+                    if (content.length > 5) fileText += content + "\n";
+                  } catch {}
+                }
+                const archiveType = fname.endsWith(".zip") ? "ZIP" : fname.endsWith(".rar") ? "RAR" : "Archive";
+                await bot.sendMessage(chatId, `📦 ${archiveType}: extracted ${allFiles.length} file(s)`, { parse_mode: "HTML" });
+              } catch (zipErr: any) {
+                fileText = Buffer.from(arrayBuf).toString("utf8");
+                await bot.sendMessage(chatId, `⚠️ Could not extract archive, reading as text...`, { parse_mode: "HTML" });
               }
-              await bot.sendMessage(chatId, `📦 ZIP: extracted ${allFiles.length} file(s)`, { parse_mode: "HTML" });
             } else {
               fileText = await fileRes.text();
             }
@@ -4841,7 +4876,7 @@ export function setupBot() {
           limitLine = `👑 VIP — <b>Unlimited</b> | ${exp}`;
         }
         return bot.sendMessage(chatId,
-          `🔑 <b>NF Token Checker</b>\n${"─".repeat(30)}\n\n${limitLine}\n\n📋 Send Netflix cookies (NetflixId values)\n\n📝 <b>Format:</b>\n• One cookie per line (text)\n• 📄 Any file type (.txt, .csv, .json, etc.)\n• 📦 .zip file (auto-extract)\n\n⏳ Each cookie will be checked for:\n✅ Active subscription\n🌍 Country\n📦 Plan type\n🔗 Login token\n\n💡 Send your cookies now or type /cancel`,
+          `🔑 <b>NF Token Checker</b>\n${"─".repeat(30)}\n\n${limitLine}\n\n📋 Send Netflix cookies (NetflixId values)\n\n📝 <b>Format:</b>\n• One cookie per line (text)\n• 📄 Any file type (.txt, .csv, .json, .xml, etc.)\n• 📦 Archive files (.zip, .rar, .7z, .gz, .tar)\n\n⏳ Each cookie will be checked for:\n✅ Active subscription\n🌍 Country\n📦 Plan type\n🔗 Login token\n\n💡 Send your cookies now or type /cancel`,
           { parse_mode: "HTML" }
         );
       }
