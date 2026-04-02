@@ -1,0 +1,25 @@
+kind = "api"
+previewPath = "/telegram-bot"
+title = "Telegram Bot"
+version = "1.0.0"
+
+[[services]]
+name = "Telegram Bot"
+paths = ["/telegram-bot"]
+
+[services.development]
+run = "cd artifacts/telegram-bot && pnpm dev"
+
+[services.production]
+
+[services.production.build]
+args = ["pnpm", "--filter", "telegram-bot", "run", "build"]
+
+[services.production.build.env]
+NODE_ENV = "production"
+
+[services.production.run]
+args = ["node", "artifacts/telegram-bot/dist/index.js"]
+
+[services.production.run.env]
+NODE_ENV = "production"
