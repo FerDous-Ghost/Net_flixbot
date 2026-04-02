@@ -940,7 +940,6 @@ export function setupBot() {
 
       let hits = 0;
       let dead = 0;
-      let tokens: string[] = [];
 
       for (let i = 0; i < toCheck.length; i++) {
         try {
@@ -958,7 +957,10 @@ export function setupBot() {
             hits++;
             const flag = getCountryFlag(result.country || "");
             const loginUrl = result.loginUrl || `https://netflix.com/account?nftoken=${result.token}`;
-            tokens.push(`🔑 <b>Token #${hits}</b>\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n🔗 <a href="${esc(loginUrl)}">Login Link</a>\n<code>${esc(result.token)}</code>`);
+            await bot.sendMessage(chatId,
+              `🔑 <b>Token #${hits}</b>\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n🔗 <a href="${esc(loginUrl)}">Login Link</a>\n<code>${esc(result.token)}</code>`,
+              { parse_mode: "HTML", disable_web_page_preview: true }
+            );
           } else {
             dead++;
           }
@@ -966,12 +968,6 @@ export function setupBot() {
       }
 
       storage.addDailyChecks(String(userId), toCheck.length);
-
-      if (tokens.length > 0) {
-        for (const t of tokens) {
-          await bot.sendMessage(chatId, t, { parse_mode: "HTML", disable_web_page_preview: true });
-        }
-      }
 
       try {
         await bot.editMessageText(
