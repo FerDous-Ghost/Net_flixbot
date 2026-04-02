@@ -7,8 +7,10 @@
     "joinedAt": "2026-04-02T19:20:00.630Z",
     "isVip": false,
     "isBanned": false,
-    "dailyChecks": 0,
-    "lastCheckDate": ""
+    "dailyChecks": 60,
+    "lastCheckDate": "2026-04-02",
+    "referralCount": 0,
+    "bonusChecks": 0
   },
   "6747090237": {
     "id": "6747090237",
@@ -19,7 +21,9 @@
     "isVip": false,
     "isBanned": false,
     "dailyChecks": 0,
-    "lastCheckDate": ""
+    "lastCheckDate": "",
+    "referralCount": 0,
+    "bonusChecks": 0
   },
   "8394758671": {
     "id": "8394758671",
@@ -30,6 +34,21 @@
     "isVip": false,
     "isBanned": false,
     "dailyChecks": 0,
-    "lastCheckDate": ""
+    "lastCheckDate": "",
+    "referralCount": 0,
+    "bonusChecks": 0
+  },
+  "8387371322": {
+    "id": "8387371322",
+    "telegramId": "8387371322",
+    "username": "u_b1t",
+    "firstName": "سَـدَفْ",
+    "joinedAt": "2026-04-02T19:51:22.776Z",
+    "isVip": false,
+    "isBanned": false,
+    "dailyChecks": 0,
+    "lastCheckDate": "",
+    "referralCount": 0,
+    "bonusChecks": 0
   }
 }
