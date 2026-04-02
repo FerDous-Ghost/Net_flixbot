@@ -25,18 +25,31 @@ export function setupBot() {
     console.log(`✅ Checker Bot running: @${me.username}`);
   });
 
+  const uncheckableChannels = new Set<string>();
+
   async function checkChannelMembership(userId: number, chatId: string): Promise<boolean> {
     try {
       const member = await bot.getChatMember(chatId, userId);
       return ["member", "administrator", "creator"].includes(member.status);
-    } catch {
-      return false;
+    } catch (err: any) {
+      const msg = err?.message || "";
+      if (msg.includes("chat not found") || msg.includes("bot is not a member") || msg.includes("Bad Request")) {
+        console.log(`⚠️ Cannot check channel ${chatId}: ${msg} — skipping in future`);
+        uncheckableChannels.add(chatId);
+        return true;
+      }
+      if (msg.includes("user not found") || msg.includes("USER_NOT_PARTICIPANT")) {
+        return false;
+      }
+      console.log(`⚠️ Channel check error ${chatId}: ${msg} — allowing through`);
+      return true;
     }
   }
 
   async function checkAllChannels(userId: number): Promise<boolean> {
     for (const ch of CHANNELS) {
       if (!ch.id || ch.url.includes("/+")) continue;
+      if (uncheckableChannels.has(ch.id)) continue;
       const ok = await checkChannelMembership(userId, ch.id);
       if (!ok) return false;
     }
