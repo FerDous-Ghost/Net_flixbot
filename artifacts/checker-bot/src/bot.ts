@@ -79,16 +79,22 @@ export function setupBot() {
   function mainMenu(): TelegramBot.InlineKeyboardButton[][] {
     return [
       [{ text: "🔴 Netflix Checker", callback_data: "nf_checker" }, { text: "📺 Prime Video Checker", callback_data: "prime_checker" }],
-      [{ text: "👤 My Profile", callback_data: "profile" }],
+      [{ text: "🔑 NF Token Generator", callback_data: "nf_token" }],
+      [{ text: "👤 My Profile", callback_data: "profile" }, { text: "👑 VIP Subscribe", callback_data: "vip_info" }],
     ];
   }
 
   function adminMenu(): TelegramBot.InlineKeyboardButton[][] {
+    const config = storage.getConfig();
+    const nfStatus = config.netflixLocked ? "🔒" : "🔓";
+    const primeStatus = config.primeLocked ? "🔒" : "🔓";
     return [
-      [{ text: "📊 Stats", callback_data: "admin_stats" }, { text: "👑 VIP Management", callback_data: "admin_vip" }],
-      [{ text: "🔒 Lock Netflix", callback_data: "admin_lock_nf" }, { text: "🔓 Unlock Netflix", callback_data: "admin_unlock_nf" }],
-      [{ text: "🔒 Lock Prime", callback_data: "admin_lock_prime" }, { text: "🔓 Unlock Prime", callback_data: "admin_unlock_prime" }],
-      [{ text: "📢 Broadcast", callback_data: "admin_broadcast" }],
+      [{ text: "📊 Bot Stats", callback_data: "admin_stats" }],
+      [{ text: "👑 VIP Users", callback_data: "admin_vip" }, { text: "➕ Add VIP", callback_data: "admin_add_vip" }],
+      [{ text: `${nfStatus} Netflix: ${config.netflixLocked ? "Locked" : "Open"}`, callback_data: config.netflixLocked ? "admin_unlock_nf" : "admin_lock_nf" }],
+      [{ text: `${primeStatus} Prime: ${config.primeLocked ? "Locked" : "Open"}`, callback_data: config.primeLocked ? "admin_unlock_prime" : "admin_lock_prime" }],
+      [{ text: "📢 Broadcast", callback_data: "admin_broadcast" }, { text: "🚫 Ban User", callback_data: "admin_ban_prompt" }],
+      [{ text: "👥 All Users", callback_data: "admin_users" }],
       [{ text: "🔙 Main Menu", callback_data: "main_menu" }],
     ];
   }
@@ -737,6 +743,85 @@ export function setupBot() {
       });
     }
 
+    if (data === "nf_token") {
+      const config = storage.getConfig();
+      if (config.netflixLocked && !isOwner(userId)) {
+        return bot.sendMessage(chatId, "🔒 Netflix is currently locked by admin.", {
+          reply_markup: { inline_keyboard: [[{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
+        });
+      }
+
+      const vip = storage.isVip(String(userId)) || isOwner(userId);
+      const used = storage.getDailyChecks(String(userId));
+      if (!vip && used >= DAILY_LIMIT) {
+        return bot.sendMessage(chatId,
+          `⚠️ Daily limit reached (<b>${DAILY_LIMIT}</b>).\n\n👑 Get VIP for unlimited!\nContact: @XK6271`,
+          { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "👑 VIP Info", callback_data: "vip_info" }, { text: "🔙 Menu", callback_data: "main_menu" }]] } }
+        );
+      }
+
+      const remaining = vip ? "♾️ Unlimited" : `${DAILY_LIMIT - used} remaining`;
+      pending[userId] = { action: "nf_token_only" };
+      return bot.sendMessage(chatId,
+        `🔑 <b>NF Token Generator</b>\n${"─".repeat(30)}\n\n📊 ${remaining}\n\n📋 Send Netflix cookies (NetflixId values)\n\n🔑 This mode extracts <b>only the login token</b> — fast and simple!\n\n📝 <b>Format:</b>\n• One cookie per line\n• 📄 File (.txt, .csv, .json)\n• 📦 .zip archive\n\n💡 Send cookies now or /cancel`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    if (data === "vip_info") {
+      const vip = storage.isVip(String(userId));
+      let text = `👑 <b>VIP Subscription</b>\n${"─".repeat(30)}\n\n`;
+      if (vip) {
+        const u = storage.getUser(String(userId));
+        const exp = u?.vipExpiresAt ? new Date(u.vipExpiresAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) : "♾️ Permanent";
+        text += `✅ You are a <b>VIP</b> member!\n📅 Expires: ${exp}\n\n`;
+        text += `<b>Benefits:</b>\n• ♾️ Unlimited daily checks\n• ⚡ Priority support\n• 🔑 Full token extraction`;
+      } else {
+        text += `You are a <b>Free</b> user.\n📊 Daily limit: ${DAILY_LIMIT} checks\n\n`;
+        text += `<b>VIP Benefits:</b>\n• ♾️ Unlimited daily checks\n• ⚡ Priority support\n• 🔑 Full token extraction\n\n`;
+        text += `📩 To subscribe, contact: @XK6271`;
+      }
+      return bot.sendMessage(chatId, text, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
+      });
+    }
+
+    if (data === "admin_add_vip") {
+      if (!isOwner(userId)) return;
+      pending[userId] = { action: "admin_add_vip" };
+      return bot.sendMessage(chatId,
+        `➕ <b>Add VIP</b>\n\nSend the user ID and days:\n<code>USER_ID DAYS</code>\n\nExample: <code>123456789 30</code>\nFor permanent: <code>123456789</code>\n\nOr type /cancel`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    if (data === "admin_ban_prompt") {
+      if (!isOwner(userId)) return;
+      pending[userId] = { action: "admin_ban" };
+      return bot.sendMessage(chatId,
+        `🚫 <b>Ban User</b>\n\nSend the user ID to ban:\n<code>USER_ID</code>\n\nOr type /cancel`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    if (data === "admin_users") {
+      if (!isOwner(userId)) return;
+      const allUsers = storage.getAllUsers();
+      const sorted = allUsers.sort((a, b) => new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime()).slice(0, 20);
+      let text = `👥 <b>Users (${allUsers.length} total)</b>\n${"─".repeat(25)}\n\n`;
+      text += `<i>Showing last 20:</i>\n\n`;
+      for (const u of sorted) {
+        const vipBadge = storage.isVip(u.telegramId) ? " 👑" : "";
+        const banBadge = u.isBanned ? " 🚫" : "";
+        text += `• ${esc(u.firstName)}${vipBadge}${banBadge} (@${esc(u.username || "none")}) — <code>${u.telegramId}</code>\n`;
+      }
+      return bot.sendMessage(chatId, text, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+      });
+    }
+
     if (data === "admin_broadcast") {
       if (!isOwner(userId)) return;
       pending[userId] = { action: "broadcast" };
@@ -775,7 +860,128 @@ export function setupBot() {
           sent++;
         } catch { failed++; }
       }
-      return bot.sendMessage(chatId, `📢 Broadcast complete!\n✅ Sent: ${sent}\n❌ Failed: ${failed}`);
+      return bot.sendMessage(chatId, `📢 Broadcast complete!\n✅ Sent: ${sent}\n❌ Failed: ${failed}`, {
+        reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+      });
+    }
+
+    if (userPending.action === "admin_add_vip") {
+      if (!isOwner(userId)) return;
+      delete pending[userId];
+      const parts = text.trim().split(/\s+/);
+      const targetId = parts[0];
+      const days = parts[1] ? parseInt(parts[1]) : undefined;
+      if (!targetId || isNaN(Number(targetId))) {
+        return bot.sendMessage(chatId, "❌ Invalid user ID.", {
+          reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+        });
+      }
+      storage.setVip(targetId, days);
+      const targetUser = storage.getUser(targetId);
+      const name = targetUser ? `${targetUser.firstName} (@${targetUser.username || "none"})` : targetId;
+      return bot.sendMessage(chatId,
+        `✅ VIP granted to <b>${esc(name)}</b>\n📅 Duration: ${days ? `${days} days` : "♾️ Permanent"}`,
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] } }
+      );
+    }
+
+    if (userPending.action === "admin_ban") {
+      if (!isOwner(userId)) return;
+      delete pending[userId];
+      const targetId = text.trim();
+      if (!targetId || isNaN(Number(targetId))) {
+        return bot.sendMessage(chatId, "❌ Invalid user ID.", {
+          reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+        });
+      }
+      storage.banUser(targetId);
+      return bot.sendMessage(chatId, `🚫 User <code>${targetId}</code> has been banned.`, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+      });
+    }
+
+    if (userPending.action === "nf_token_only") {
+      let cookieText = "";
+      if (msg.document) {
+        const extracted = await extractFileText(msg);
+        if (!extracted) return;
+        cookieText = extracted;
+      } else {
+        cookieText = text;
+      }
+
+      const cookies = parseCookiesFromText(cookieText);
+      if (cookies.length === 0) {
+        return bot.sendMessage(chatId, "❌ No valid cookies found.", { parse_mode: "HTML" });
+      }
+
+      const vip = storage.isVip(String(userId)) || isOwner(userId);
+      const used = storage.getDailyChecks(String(userId));
+      const canCheck = vip ? cookies.length : Math.min(cookies.length, DAILY_LIMIT - used);
+
+      if (canCheck <= 0) {
+        delete pending[userId];
+        return bot.sendMessage(chatId,
+          `⚠️ Daily limit reached. Get VIP!\nContact: @XK6271`,
+          { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenu() } }
+        );
+      }
+
+      const toCheck = cookies.slice(0, canCheck);
+      if (toCheck.length < cookies.length) {
+        await bot.sendMessage(chatId, `⚠️ Checking only ${toCheck.length} of ${cookies.length} (daily limit).`);
+      }
+
+      const statusMsg = await bot.sendMessage(chatId,
+        `🔑 Generating tokens for <b>${toCheck.length}</b> cookie(s)...\n\n⏳ Please wait...`,
+        { parse_mode: "HTML" }
+      );
+
+      let hits = 0;
+      let dead = 0;
+      let tokens: string[] = [];
+
+      for (let i = 0; i < toCheck.length; i++) {
+        try {
+          if (i > 0 && i % 5 === 0) {
+            try {
+              await bot.editMessageText(
+                `🔑 Generating... ${i}/${toCheck.length}\n\n✅ Tokens: ${hits} | ❌ Dead: ${dead}`,
+                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
+              );
+            } catch {}
+          }
+
+          const result = await checkNetflixCookie(toCheck[i]);
+          if (result.success && result.token) {
+            hits++;
+            const flag = getCountryFlag(result.country || "");
+            const loginUrl = result.loginUrl || `https://netflix.com/account?nftoken=${result.token}`;
+            tokens.push(`🔑 <b>Token #${hits}</b>\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n🔗 <a href="${esc(loginUrl)}">Login Link</a>\n<code>${esc(result.token)}</code>`);
+          } else {
+            dead++;
+          }
+        } catch { dead++; }
+      }
+
+      storage.addDailyChecks(String(userId), toCheck.length);
+
+      if (tokens.length > 0) {
+        for (const t of tokens) {
+          await bot.sendMessage(chatId, t, { parse_mode: "HTML", disable_web_page_preview: true });
+        }
+      }
+
+      try {
+        await bot.editMessageText(
+          `✅ <b>Token Generation Complete!</b>\n${"─".repeat(25)}\n\n📊 Total: ${toCheck.length}\n🔑 Tokens: ${hits}\n❌ Dead: ${dead}`,
+          { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
+        );
+      } catch {}
+
+      delete pending[userId];
+      return;
     }
 
     if (userPending.action === "nf_check") {
