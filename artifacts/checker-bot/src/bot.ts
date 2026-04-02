@@ -18,10 +18,13 @@ export function setupBot() {
   const bot = new TelegramBot(BOT_TOKEN, { polling: true });
   const storage = new Storage();
   const pending: Record<number, { action: string }> = {};
+  const cancelled = new Set<number>();
+  let botUsername = "";
 
   console.log("🤖 Checker Bot initializing...");
 
   bot.getMe().then(me => {
+    botUsername = me.username || "";
     console.log(`✅ Checker Bot running: @${me.username}`);
   });
 
@@ -81,6 +84,7 @@ export function setupBot() {
       [{ text: "🔴 Netflix Checker", callback_data: "nf_checker" }, { text: "📺 Prime Video Checker", callback_data: "prime_checker" }],
       [{ text: "🔑 NF Token Generator", callback_data: "nf_token" }],
       [{ text: "👤 My Profile", callback_data: "profile" }, { text: "👑 VIP Subscribe", callback_data: "vip_info" }],
+      [{ text: "🔗 Referral Link", callback_data: "referral" }],
     ];
   }
 
@@ -93,8 +97,11 @@ export function setupBot() {
       [{ text: "👑 VIP Users", callback_data: "admin_vip" }, { text: "➕ Add VIP", callback_data: "admin_add_vip" }],
       [{ text: `${nfStatus} Netflix: ${config.netflixLocked ? "Locked" : "Open"}`, callback_data: config.netflixLocked ? "admin_unlock_nf" : "admin_lock_nf" }],
       [{ text: `${primeStatus} Prime: ${config.primeLocked ? "Locked" : "Open"}`, callback_data: config.primeLocked ? "admin_unlock_prime" : "admin_lock_prime" }],
-      [{ text: "📢 Broadcast", callback_data: "admin_broadcast" }, { text: "🚫 Ban User", callback_data: "admin_ban_prompt" }],
+      [{ text: "📢 Broadcast", callback_data: "admin_broadcast" }],
+      [{ text: "🚫 Ban User", callback_data: "admin_ban_prompt" }, { text: "✅ Unban User", callback_data: "admin_unban_prompt" }],
+      [{ text: "🚫 Banned Users", callback_data: "admin_banned" }],
       [{ text: "👥 All Users", callback_data: "admin_users" }],
+      [{ text: "🔗 Referral Settings", callback_data: "admin_referral" }],
       [{ text: "🔙 Main Menu", callback_data: "main_menu" }],
     ];
   }
@@ -507,13 +514,39 @@ export function setupBot() {
     }
   }
 
-  bot.onText(/\/start/, async (msg) => {
+  bot.onText(/\/start(.*)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from!.id;
     const username = msg.from?.username || "";
     const firstName = msg.from?.first_name || "";
+    const startParam = (match?.[1] || "").trim();
 
-    storage.getOrCreateUser(String(userId), username, firstName);
+    let referredBy: string | undefined;
+    if (startParam.startsWith(" ref_") || startParam.startsWith("ref_")) {
+      const refId = startParam.replace(/^\s*ref_/, "");
+      if (refId && refId !== String(userId)) {
+        const existing = storage.getUser(String(userId));
+        if (!existing) {
+          referredBy = refId;
+        }
+      }
+    }
+
+    const isNew = !storage.getUser(String(userId));
+    storage.getOrCreateUser(String(userId), username, firstName, referredBy);
+
+    if (isNew && referredBy) {
+      const refUser = storage.getUser(referredBy);
+      const bonus = storage.getConfig().referralBonus;
+      if (refUser) {
+        try {
+          await bot.sendMessage(Number(referredBy),
+            `🎉 <b>New Referral!</b>\n\n${esc(firstName)} joined using your link!\n🎁 You earned <b>+${bonus}</b> bonus checks!`,
+            { parse_mode: "HTML" }
+          );
+        } catch {}
+      }
+    }
 
     if (CHANNELS.length > 0 && !await checkAllChannels(userId)) {
       return sendJoinMessage(chatId);
@@ -560,8 +593,20 @@ export function setupBot() {
     await bot.sendMessage(msg.chat.id, `✅ Unbanned user ${match![1]}`);
   });
 
+  bot.onText(/\/setbonus (.+)/, async (msg, match) => {
+    if (!isOwner(msg.from!.id)) return;
+    const val = parseInt(match![1]);
+    if (isNaN(val) || val < 1) {
+      return bot.sendMessage(msg.chat.id, "❌ Invalid number. Usage: /setbonus 100");
+    }
+    storage.setReferralBonus(val);
+    await bot.sendMessage(msg.chat.id, `✅ Referral bonus set to <b>${val}</b> checks per referral.`, { parse_mode: "HTML" });
+  });
+
   bot.onText(/\/cancel/, async (msg) => {
-    delete pending[msg.from!.id];
+    const uid = msg.from!.id;
+    cancelled.add(uid);
+    delete pending[uid];
     await bot.sendMessage(msg.chat.id, "❌ Cancelled.", {
       reply_markup: { inline_keyboard: mainMenu() }
     });
@@ -607,21 +652,50 @@ export function setupBot() {
       );
     }
 
+    if (data === "cancel_check") {
+      cancelled.add(userId);
+      delete pending[userId];
+      return bot.sendMessage(chatId, "❌ Check cancelled!", {
+        reply_markup: { inline_keyboard: mainMenu() }
+      });
+    }
+
     if (data === "profile") {
       const vip = storage.isVip(String(userId));
       const used = storage.getDailyChecks(String(userId));
-      const remaining = vip ? "♾️ Unlimited" : `${Math.max(0, DAILY_LIMIT - used)} / ${DAILY_LIMIT}`;
+      const bonus = storage.getBonusChecks(String(userId));
+      const baseRemaining = vip ? "♾️ Unlimited" : `${Math.max(0, DAILY_LIMIT - used + bonus)}`;
       const vipUser = storage.getUser(String(userId));
       const vipExp = vipUser?.vipExpiresAt ? new Date(vipUser.vipExpiresAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) : "♾️ Permanent";
+      const referrals = (vipUser as any)?.referralCount || 0;
 
       let text = `👤 <b>My Profile</b>\n${"─".repeat(25)}\n\n`;
       text += `🆔 <b>ID:</b> <code>${userId}</code>\n`;
       text += `👤 <b>Name:</b> ${esc(user.firstName)}\n`;
       if (user.username) text += `📎 <b>Username:</b> @${esc(user.username)}\n`;
       text += `\n📊 <b>Today's Checks:</b> ${used}\n`;
-      text += `📋 <b>Remaining:</b> ${remaining}\n`;
+      text += `📋 <b>Remaining:</b> ${baseRemaining}\n`;
+      if (bonus > 0) text += `🎁 <b>Bonus Checks:</b> ${bonus}\n`;
+      text += `🔗 <b>Referrals:</b> ${referrals}\n`;
       text += `\n${vip ? `👑 <b>VIP:</b> Yes | Expires: ${vipExp}` : "👤 <b>Status:</b> Free User"}`;
 
+      return bot.sendMessage(chatId, text, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "🔗 Referral Link", callback_data: "referral" }, { text: "🔙 Main Menu", callback_data: "main_menu" }]] }
+      });
+    }
+
+    if (data === "referral") {
+      const refLink = `https://t.me/${botUsername}?start=ref_${userId}`;
+      const bonus = storage.getConfig().referralBonus;
+      const referrals = (user as any)?.referralCount || 0;
+      const totalBonus = storage.getBonusChecks(String(userId));
+      let text = `🔗 <b>Referral Program</b>\n${"─".repeat(25)}\n\n`;
+      text += `📤 Share your link and earn <b>+${bonus}</b> bonus checks per referral!\n\n`;
+      text += `🔗 <b>Your Link:</b>\n<code>${refLink}</code>\n\n`;
+      text += `👥 <b>Your Referrals:</b> ${referrals}\n`;
+      text += `🎁 <b>Bonus Checks Available:</b> ${totalBonus}\n\n`;
+      text += `💡 When someone joins using your link, you both benefit!`;
       return bot.sendMessage(chatId, text, {
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: [[{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
@@ -682,7 +756,7 @@ export function setupBot() {
       if (!isOwner(userId)) return;
       const stats = storage.getStats();
       return bot.sendMessage(chatId,
-        `📊 <b>Bot Statistics</b>\n${"─".repeat(25)}\n\n👥 Total Users: ${stats.totalUsers}\n🔍 Checks Today: ${stats.checksToday}\n👑 Active VIPs: ${stats.activeVips}`,
+        `📊 <b>Bot Statistics</b>\n${"─".repeat(25)}\n\n👥 Total Users: ${stats.totalUsers}\n🔍 Checks Today: ${stats.checksToday}\n👑 Active VIPs: ${stats.activeVips}\n🚫 Banned: ${stats.bannedUsers}\n🔗 Total Referrals: ${stats.totalReferrals}`,
         { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] } }
       );
     }
@@ -825,7 +899,50 @@ export function setupBot() {
     if (data === "admin_broadcast") {
       if (!isOwner(userId)) return;
       pending[userId] = { action: "broadcast" };
-      return bot.sendMessage(chatId, "📢 Send the broadcast message now (text):");
+      return bot.sendMessage(chatId, "📢 Send the broadcast message now (text):\n\nOr /cancel");
+    }
+
+    if (data === "admin_unban_prompt") {
+      if (!isOwner(userId)) return;
+      pending[userId] = { action: "admin_unban" };
+      return bot.sendMessage(chatId,
+        `✅ <b>Unban User</b>\n\nSend the user ID to unban:\n<code>USER_ID</code>\n\nOr type /cancel`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    if (data === "admin_banned") {
+      if (!isOwner(userId)) return;
+      const bannedUsers = storage.getAllUsers().filter(u => u.isBanned);
+      let text = `🚫 <b>Banned Users</b>\n${"─".repeat(25)}\n\n`;
+      if (bannedUsers.length === 0) {
+        text += "No banned users.";
+      } else {
+        for (const u of bannedUsers) {
+          text += `• ${esc(u.firstName)} (@${esc(u.username || "none")}) — <code>${u.telegramId}</code>\n`;
+        }
+      }
+      return bot.sendMessage(chatId, text, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [
+          [{ text: "✅ Unban User", callback_data: "admin_unban_prompt" }],
+          [{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]
+        ] }
+      });
+    }
+
+    if (data === "admin_referral") {
+      if (!isOwner(userId)) return;
+      const config = storage.getConfig();
+      const stats = storage.getStats();
+      let text = `🔗 <b>Referral Settings</b>\n${"─".repeat(25)}\n\n`;
+      text += `🎁 <b>Bonus per referral:</b> ${config.referralBonus} checks\n`;
+      text += `🔗 <b>Total referrals:</b> ${stats.totalReferrals}\n\n`;
+      text += `To change bonus amount, send:\n<code>/setbonus 100</code>`;
+      return bot.sendMessage(chatId, text, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+      });
     }
   });
 
@@ -901,6 +1018,22 @@ export function setupBot() {
       });
     }
 
+    if (userPending.action === "admin_unban") {
+      if (!isOwner(userId)) return;
+      delete pending[userId];
+      const targetId = text.trim();
+      if (!targetId || isNaN(Number(targetId))) {
+        return bot.sendMessage(chatId, "❌ Invalid user ID.", {
+          reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+        });
+      }
+      storage.unbanUser(targetId);
+      return bot.sendMessage(chatId, `✅ User <code>${targetId}</code> has been unbanned.`, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "🔙 Admin Panel", callback_data: "admin_panel" }]] }
+      });
+    }
+
     if (userPending.action === "nf_token_only") {
       let cookieText = "";
       if (msg.document) {
@@ -933,21 +1066,24 @@ export function setupBot() {
         await bot.sendMessage(chatId, `⚠️ Checking only ${toCheck.length} of ${cookies.length} (daily limit).`);
       }
 
+      cancelled.delete(userId);
       const statusMsg = await bot.sendMessage(chatId,
-        `🔑 Generating tokens for <b>${toCheck.length}</b> cookie(s)...\n\n⏳ Please wait...`,
-        { parse_mode: "HTML" }
+        `🔑 Generating tokens for <b>${toCheck.length}</b> cookie(s)...\n\n⏳ Please wait...\n\nType /cancel or press button to stop`,
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
       );
 
       let hits = 0;
       let dead = 0;
+      let stopped = false;
 
       for (let i = 0; i < toCheck.length; i++) {
+        if (cancelled.has(userId)) { stopped = true; cancelled.delete(userId); break; }
         try {
           if (i > 0 && i % 5 === 0) {
             try {
               await bot.editMessageText(
-                `🔑 Generating... ${i}/${toCheck.length}\n\n✅ Tokens: ${hits} | ❌ Dead: ${dead}`,
-                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
+                `🔑 Generating... ${i}/${toCheck.length}\n\n✅ Tokens: ${hits} | ❌ Dead: ${dead}\n\nType /cancel to stop`,
+                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
               );
             } catch {}
           }
@@ -967,11 +1103,11 @@ export function setupBot() {
         } catch { dead++; }
       }
 
-      storage.addDailyChecks(String(userId), toCheck.length);
+      storage.addDailyChecks(String(userId), stopped ? hits + dead : toCheck.length);
 
       try {
         await bot.editMessageText(
-          `✅ <b>Token Generation Complete!</b>\n${"─".repeat(25)}\n\n📊 Total: ${toCheck.length}\n🔑 Tokens: ${hits}\n❌ Dead: ${dead}`,
+          `${stopped ? "⛔ <b>Cancelled!</b>" : "✅ <b>Token Generation Complete!</b>"}\n${"─".repeat(25)}\n\n📊 Checked: ${hits + dead}/${toCheck.length}\n🔑 Tokens: ${hits}\n❌ Dead: ${dead}`,
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
         );
       } catch {}
@@ -1013,22 +1149,25 @@ export function setupBot() {
         await bot.sendMessage(chatId, `⚠️ Checking only ${toCheck.length} of ${cookies.length} cookies (daily limit).`);
       }
 
+      cancelled.delete(userId);
       const statusMsg = await bot.sendMessage(chatId,
-        `🔍 Checking <b>${toCheck.length}</b> Netflix cookie(s)...\n\n⏳ Please wait...`,
-        { parse_mode: "HTML" }
+        `🔍 Checking <b>${toCheck.length}</b> Netflix cookie(s)...\n\n⏳ Please wait...\n\nType /cancel to stop`,
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
       );
 
       let hits = 0;
       let dead = 0;
       let errors = 0;
+      let stopped = false;
 
       for (let i = 0; i < toCheck.length; i++) {
+        if (cancelled.has(userId)) { stopped = true; cancelled.delete(userId); break; }
         try {
           if (i > 0 && i % 5 === 0) {
             try {
               await bot.editMessageText(
-                `🔍 Checking... ${i}/${toCheck.length}\n\n✅ Hits: ${hits} | ❌ Dead: ${dead} | ⚠️ Errors: ${errors}`,
-                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
+                `🔍 Checking... ${i}/${toCheck.length}\n\n✅ Hits: ${hits} | ❌ Dead: ${dead} | ⚠️ Errors: ${errors}\n\nType /cancel to stop`,
+                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
               );
             } catch {}
           }
@@ -1046,11 +1185,11 @@ export function setupBot() {
         }
       }
 
-      storage.addDailyChecks(String(userId), toCheck.length);
+      storage.addDailyChecks(String(userId), stopped ? hits + dead + errors : toCheck.length);
 
       try {
         await bot.editMessageText(
-          `✅ <b>Check Complete!</b>\n${"─".repeat(25)}\n\n📊 Total: ${toCheck.length}\n✅ Hits: ${hits}\n❌ Dead: ${dead}\n⚠️ Errors: ${errors}`,
+          `${stopped ? "⛔ <b>Cancelled!</b>" : "✅ <b>Check Complete!</b>"}\n${"─".repeat(25)}\n\n📊 Checked: ${hits + dead + errors}/${toCheck.length}\n✅ Hits: ${hits}\n❌ Dead: ${dead}\n⚠️ Errors: ${errors}`,
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
         );
       } catch {}
@@ -1092,22 +1231,25 @@ export function setupBot() {
         await bot.sendMessage(chatId, `⚠️ Checking only ${toCheck.length} of ${cookies.length} cookies (daily limit).`);
       }
 
+      cancelled.delete(userId);
       const statusMsg = await bot.sendMessage(chatId,
-        `🔍 Checking <b>${toCheck.length}</b> Prime Video cookie(s)...\n\n⏳ Please wait...`,
-        { parse_mode: "HTML" }
+        `🔍 Checking <b>${toCheck.length}</b> Prime Video cookie(s)...\n\n⏳ Please wait...\n\nType /cancel to stop`,
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
       );
 
       let hits = 0;
       let dead = 0;
       let errors = 0;
+      let stopped = false;
 
       for (let i = 0; i < toCheck.length; i++) {
+        if (cancelled.has(userId)) { stopped = true; cancelled.delete(userId); break; }
         try {
           if (i > 0 && i % 5 === 0) {
             try {
               await bot.editMessageText(
-                `🔍 Checking... ${i}/${toCheck.length}\n\n✅ Hits: ${hits} | ❌ Dead: ${dead} | ⚠️ Errors: ${errors}`,
-                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
+                `🔍 Checking... ${i}/${toCheck.length}\n\n✅ Hits: ${hits} | ❌ Dead: ${dead} | ⚠️ Errors: ${errors}\n\nType /cancel to stop`,
+                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel_check" }]] } }
               );
             } catch {}
           }
@@ -1125,11 +1267,11 @@ export function setupBot() {
         }
       }
 
-      storage.addDailyChecks(String(userId), toCheck.length);
+      storage.addDailyChecks(String(userId), stopped ? hits + dead + errors : toCheck.length);
 
       try {
         await bot.editMessageText(
-          `✅ <b>Check Complete!</b>\n${"─".repeat(25)}\n\n📊 Total: ${toCheck.length}\n✅ Hits: ${hits}\n❌ Dead: ${dead}\n⚠️ Errors: ${errors}`,
+          `${stopped ? "⛔ <b>Cancelled!</b>" : "✅ <b>Check Complete!</b>"}\n${"─".repeat(25)}\n\n📊 Checked: ${hits + dead + errors}/${toCheck.length}\n✅ Hits: ${hits}\n❌ Dead: ${dead}\n⚠️ Errors: ${errors}`,
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "HTML" }
         );
       } catch {}

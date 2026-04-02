@@ -16,11 +16,15 @@ interface User {
   isBanned: boolean;
   dailyChecks: number;
   lastCheckDate: string;
+  referredBy?: string;
+  referralCount: number;
+  bonusChecks: number;
 }
 
 interface Config {
   netflixLocked: boolean;
   primeLocked: boolean;
+  referralBonus: number;
 }
 
 function loadJson(file: string, fallback: any = {}): any {
@@ -38,17 +42,26 @@ function saveJson(file: string, data: any) {
 
 export class Storage {
   private users: Record<string, User> = {};
-  private config: Config = { netflixLocked: false, primeLocked: false };
+  private config: Config = { netflixLocked: false, primeLocked: false, referralBonus: 50 };
 
   constructor() {
-    this.users = loadJson("users.json", {});
-    this.config = loadJson("config.json", { netflixLocked: false, primeLocked: false });
+    const raw = loadJson("users.json", {});
+    for (const [k, v] of Object.entries(raw)) {
+      const u = v as any;
+      this.users[k] = {
+        ...u,
+        referralCount: u.referralCount || 0,
+        bonusChecks: u.bonusChecks || 0,
+      };
+    }
+    const cfg = loadJson("config.json", { netflixLocked: false, primeLocked: false, referralBonus: 50 });
+    this.config = { ...this.config, ...cfg };
   }
 
   private saveUsers() { saveJson("users.json", this.users); }
   private saveConfig() { saveJson("config.json", this.config); }
 
-  getOrCreateUser(telegramId: string, username: string, firstName: string): User {
+  getOrCreateUser(telegramId: string, username: string, firstName: string, referredBy?: string): User {
     if (this.users[telegramId]) {
       this.users[telegramId].username = username;
       this.users[telegramId].firstName = firstName;
@@ -65,7 +78,14 @@ export class Storage {
       isBanned: false,
       dailyChecks: 0,
       lastCheckDate: "",
+      referralCount: 0,
+      bonusChecks: 0,
     };
+    if (referredBy && referredBy !== telegramId && this.users[referredBy]) {
+      user.referredBy = referredBy;
+      this.users[referredBy].referralCount += 1;
+      this.users[referredBy].bonusChecks += this.config.referralBonus;
+    }
     this.users[telegramId] = user;
     this.saveUsers();
     return user;
@@ -90,6 +110,18 @@ export class Storage {
     return u.dailyChecks;
   }
 
+  getBonusChecks(telegramId: string): number {
+    return this.users[telegramId]?.bonusChecks || 0;
+  }
+
+  getRemainingChecks(telegramId: string, dailyLimit: number): number {
+    const u = this.users[telegramId];
+    if (!u) return 0;
+    const today = this.getTodayStr();
+    const used = u.lastCheckDate === today ? u.dailyChecks : 0;
+    return Math.max(0, dailyLimit + (u.bonusChecks || 0) - used);
+  }
+
   addDailyChecks(telegramId: string, count: number) {
     const u = this.users[telegramId];
     if (!u) return;
@@ -99,6 +131,13 @@ export class Storage {
       u.lastCheckDate = today;
     }
     u.dailyChecks += count;
+    this.saveUsers();
+  }
+
+  useBonusChecks(telegramId: string, count: number) {
+    const u = this.users[telegramId];
+    if (!u) return;
+    u.bonusChecks = Math.max(0, (u.bonusChecks || 0) - count);
     this.saveUsers();
   }
 
@@ -157,16 +196,21 @@ export class Storage {
 
   setNetflixLocked(v: boolean) { this.config.netflixLocked = v; this.saveConfig(); }
   setPrimeLocked(v: boolean) { this.config.primeLocked = v; this.saveConfig(); }
+  setReferralBonus(v: number) { this.config.referralBonus = v; this.saveConfig(); }
 
   getStats() {
     const users = Object.values(this.users);
     const today = this.getTodayStr();
     const checksToday = users.reduce((s, u) => s + (u.lastCheckDate === today ? u.dailyChecks : 0), 0);
     const vipCount = users.filter(u => this.isVip(u.telegramId)).length;
+    const bannedCount = users.filter(u => u.isBanned).length;
+    const totalReferrals = users.reduce((s, u) => s + (u.referralCount || 0), 0);
     return {
       totalUsers: users.length,
       checksToday,
       activeVips: vipCount,
+      bannedUsers: bannedCount,
+      totalReferrals,
     };
   }
 }
