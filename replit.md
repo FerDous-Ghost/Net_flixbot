@@ -25,3 +25,24 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## Telegram Bots
+
+### Bot 1: Ani Netflix Bot (`artifacts/telegram-bot`)
+- **Username**: @netflixfilexfiri_bot
+- **Token**: hardcoded in `src/bot.ts`
+- **Features**: NF Token Checker, points/rewards shop, games, referrals, giveaways, lottery, Animatrix accounts, admin panel, VIP checker, force-join channels, daily spin
+- **Storage**: JSON files in `.data/`
+- **Owner ID**: 7606499525 (@XK6271)
+- **Port**: 3000 (health check)
+
+### Bot 2: Cookie Checker Bot (`artifacts/checker-bot`)
+- **Username**: @heieiwjwnsk_bot
+- **Token**: hardcoded in `src/bot.ts`
+- **Features**: Netflix cookie checker with token extraction, Prime Video cookie checker, force-join channels, daily usage limit (500/day), VIP system, admin panel
+- **Storage**: JSON files in `.data/`
+- **Owner ID**: 7606499525 (@XK6271)
+- **Port**: 3001 (health check)
+- **Channels**: ThunderVault8, netflixhivea, allichetools, +9njmxL1yJuA4YjE6
+
+**IMPORTANT**: Never run both the deployed version and local version of the same bot simultaneously — causes 409 Conflict errors and button issues.
