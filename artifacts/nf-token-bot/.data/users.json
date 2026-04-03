@@ -9,8 +9,8 @@
     "expiry": "2026-05-03T06:26:26.190Z",
     "tokens": 3,
     "isBanned": false,
-    "dailyChecks": 0,
-    "lastCheckDate": "",
+    "dailyChecks": 2,
+    "lastCheckDate": "2026-04-03",
     "referralCount": 1,
     "pending": false
   },

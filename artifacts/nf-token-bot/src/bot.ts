@@ -3,9 +3,9 @@ import TelegramBot from "node-telegram-bot-api";
 import AdmZip from "adm-zip";
 import { Storage } from "./storage";
 
-const BOT_TOKEN = "8742801785:AAGXMZeugnbuZL3QDG6lbQXB3gP1jAJSJMw";
-const OWNER_ID = "1366712263";
-const USDT_ADDRESS = "0x7c510f76649c305555484106c22ce3008352d0df";
+const BOT_TOKEN = process.env.BOT_TOKEN || "8742801785:AAGXMZeugnbuZL3QDG6lbQXB3gP1jAJSJMw";
+const OWNER_ID = process.env.OWNER_ID || "1366712263";
+const USDT_ADDRESS = process.env.USDT_ADDRESS || "0x7c510f76649c305555484106c22ce3008352d0df";
 
 const CHANNELS = [
   { url: "https://t.me/ThunderVault8", id: "@ThunderVault8" },
