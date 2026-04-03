@@ -85,7 +85,7 @@ export class Storage {
       firstName,
       joinedAt: new Date().toISOString(),
       role: "free",
-      tokens: 0,
+      tokens: 3,
       isBanned: false,
       dailyChecks: 0,
       lastCheckDate: "",

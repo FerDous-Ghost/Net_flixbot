@@ -113,7 +113,7 @@ export function setupBot() {
   }
 
   function noAccessMessage(): string {
-    return `🔒 <b>Access Denied</b>\n${"─".repeat(25)}\n\nYou need an active subscription or tokens to use this feature.\n\n💎 <b>Elite Plan:</b> $4/month\n🎟️ <b>Tokens:</b> Refer friends to earn free tokens\n\n👉 Use /plan to see subscription details\n👉 Use /ref to get your referral link`;
+    return `🔒 <b>Access Denied</b>\n${"─".repeat(25)}\n\nYou need an active subscription or tokens to use this feature.\n\n💎 <b>Elite Plan:</b> $5/month\n🎟️ <b>Tokens:</b> Refer friends to earn free tokens\n\n👉 Use /plan to see subscription details\n👉 Use /ref to get your referral link`;
   }
 
   const COUNTRY_NAMES: Record<string, string> = {
@@ -557,7 +557,7 @@ export function setupBot() {
   bot.onText(/\/plan/, async (msg) => {
     const chatId = msg.chat.id;
     let text = `💎 <b>Elite Subscription Plan</b>\n${"─".repeat(30)}\n\n`;
-    text += `💰 <b>Price:</b> $4 / month\n`;
+    text += `💰 <b>Price:</b> $5 / month\n`;
     text += `💳 <b>Payment:</b> USDT (BEP20 / Binance)\n\n`;
     text += `📋 <b>USDT Address:</b>\n<code>${USDT_ADDRESS}</code>\n\n`;
     text += `⭐ <b>Elite Benefits:</b>\n`;
@@ -784,7 +784,7 @@ export function setupBot() {
 
     if (data === "plan") {
       let text = `💎 <b>Elite Subscription Plan</b>\n${"─".repeat(30)}\n\n`;
-      text += `💰 <b>Price:</b> $4 / month\n`;
+      text += `💰 <b>Price:</b> $5 / month\n`;
       text += `💳 <b>Payment:</b> USDT (BEP20 / Binance)\n\n`;
       text += `📋 <b>USDT Address:</b>\n<code>${USDT_ADDRESS}</code>\n\n`;
       text += `⭐ <b>Elite Benefits:</b>\n`;
