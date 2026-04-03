@@ -45,4 +45,13 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - **Port**: 3001 (health check)
 - **Channels**: ThunderVault8, netflixhivea, allichetools, +9njmxL1yJuA4YjE6
 
+### Bot 3: NF Token Bot (`artifacts/nf-token-bot`)
+- **Username**: (new bot via token 8742801785)
+- **Token**: hardcoded in `src/bot.ts`
+- **Features**: Netflix Login Token Checker, Netflix Full Checker (token + plan + email + country + BIN), force-join channels, daily usage limit (500/day), VIP system, admin panel, referral system, broadcast
+- **Storage**: JSON files in `.data/`
+- **Owner ID**: 7606499525 (@XK6271)
+- **Port**: 3002 (health check)
+- **Channels**: ThunderVault8, netflixhivea, allichetools, +9njmxL1yJuA4YjE6, +zBedda3BFAphZjIx
+
 **IMPORTANT**: Never run both the deployed version and local version of the same bot simultaneously — causes 409 Conflict errors and button issues.
