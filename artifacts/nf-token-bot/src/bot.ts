@@ -5,7 +5,7 @@ import { Storage } from "./storage";
 
 const BOT_TOKEN = "8742801785:AAGXMZeugnbuZL3QDG6lbQXB3gP1jAJSJMw";
 const OWNER_ID = "7606499525";
-const DAILY_LIMIT = 500;
+const DAILY_LIMIT = Infinity;
 
 const CHANNELS = [
   { url: "https://t.me/ThunderVault8", id: "@ThunderVault8" },
