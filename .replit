@@ -25,34 +25,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Telegram Bot"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Checker Bot"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "NF Token Bot"
-
-[[workflows.workflow]]
-name = "Telegram Bot"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/telegram-bot && pnpm dev"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
-name = "Checker Bot"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/checker-bot && pnpm dev"
 
 [[workflows.workflow]]
 name = "NF Token Bot"
@@ -69,7 +42,11 @@ outputType = "console"
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
+integrations = ["github:1.0.0"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[nix]
+channel = "stable-25_05"
