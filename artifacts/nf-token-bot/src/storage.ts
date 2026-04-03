@@ -5,25 +5,25 @@ const DATA_DIR = path.join(__dirname, "..", ".data");
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-interface User {
+export interface User {
   id: string;
   telegramId: string;
   username: string;
   firstName: string;
   joinedAt: string;
-  isVip: boolean;
-  vipExpiresAt?: string;
+  role: "owner" | "elite" | "free";
+  expiry?: string;
+  tokens: number;
   isBanned: boolean;
   dailyChecks: number;
   lastCheckDate: string;
   referredBy?: string;
   referralCount: number;
-  bonusChecks: number;
+  pending: boolean;
 }
 
 interface Config {
   netflixLocked: boolean;
-  referralBonus: number;
 }
 
 function loadJson(file: string, fallback: any = {}): any {
@@ -41,19 +41,30 @@ function saveJson(file: string, data: any) {
 
 export class Storage {
   private users: Record<string, User> = {};
-  private config: Config = { netflixLocked: false, referralBonus: 50 };
+  private config: Config = { netflixLocked: false };
 
   constructor() {
     const raw = loadJson("users.json", {});
     for (const [k, v] of Object.entries(raw)) {
       const u = v as any;
       this.users[k] = {
-        ...u,
+        id: u.id || k,
+        telegramId: u.telegramId || k,
+        username: u.username || "",
+        firstName: u.firstName || "",
+        joinedAt: u.joinedAt || new Date().toISOString(),
+        role: u.role || (u.isVip ? "elite" : "free"),
+        expiry: u.expiry || u.vipExpiresAt,
+        tokens: u.tokens ?? u.bonusChecks ?? 0,
+        isBanned: u.isBanned || false,
+        dailyChecks: u.dailyChecks || 0,
+        lastCheckDate: u.lastCheckDate || "",
+        referredBy: u.referredBy,
         referralCount: u.referralCount || 0,
-        bonusChecks: u.bonusChecks || 0,
+        pending: u.pending || false,
       };
     }
-    const cfg = loadJson("config.json", { netflixLocked: false, referralBonus: 50 });
+    const cfg = loadJson("config.json", { netflixLocked: false });
     this.config = { ...this.config, ...cfg };
   }
 
@@ -73,17 +84,18 @@ export class Storage {
       username,
       firstName,
       joinedAt: new Date().toISOString(),
-      isVip: false,
+      role: "free",
+      tokens: 0,
       isBanned: false,
       dailyChecks: 0,
       lastCheckDate: "",
       referralCount: 0,
-      bonusChecks: 0,
+      pending: false,
     };
     if (referredBy && referredBy !== telegramId && this.users[referredBy]) {
       user.referredBy = referredBy;
       this.users[referredBy].referralCount += 1;
-      this.users[referredBy].bonusChecks += this.config.referralBonus;
+      this.users[referredBy].tokens = Math.min((this.users[referredBy].tokens || 0) + 3, 3);
     }
     this.users[telegramId] = user;
     this.saveUsers();
@@ -109,10 +121,6 @@ export class Storage {
     return u.dailyChecks;
   }
 
-  getBonusChecks(telegramId: string): number {
-    return this.users[telegramId]?.bonusChecks || 0;
-  }
-
   addDailyChecks(telegramId: string, count: number) {
     const u = this.users[telegramId];
     if (!u) return;
@@ -125,41 +133,92 @@ export class Storage {
     this.saveUsers();
   }
 
-  isVip(telegramId: string): boolean {
+  grantElite(telegramId: string, days: number = 30) {
+    const u = this.users[telegramId];
+    if (!u) return;
+    u.role = "elite";
+    const exp = new Date();
+    exp.setDate(exp.getDate() + days);
+    u.expiry = exp.toISOString();
+    u.pending = false;
+    this.saveUsers();
+  }
+
+  extendElite(telegramId: string, days: number) {
+    const u = this.users[telegramId];
+    if (!u) return;
+    let base = new Date();
+    if (u.role === "elite" && u.expiry && new Date(u.expiry) > base) {
+      base = new Date(u.expiry);
+    }
+    u.role = "elite";
+    base.setDate(base.getDate() + days);
+    u.expiry = base.toISOString();
+    u.pending = false;
+    this.saveUsers();
+  }
+
+  revokeElite(telegramId: string) {
+    const u = this.users[telegramId];
+    if (!u) return;
+    u.role = "free";
+    u.expiry = undefined;
+    this.saveUsers();
+  }
+
+  isEliteActive(telegramId: string): boolean {
     const u = this.users[telegramId];
     if (!u) return false;
-    if (!u.isVip) return false;
-    if (u.vipExpiresAt) {
-      if (new Date(u.vipExpiresAt) < new Date()) {
-        u.isVip = false;
-        u.vipExpiresAt = undefined;
-        this.saveUsers();
-        return false;
-      }
+    if (u.role !== "elite") return false;
+    if (u.expiry && new Date(u.expiry) < new Date()) {
+      u.role = "free";
+      u.expiry = undefined;
+      this.saveUsers();
+      return false;
     }
     return true;
   }
 
-  setVip(telegramId: string, days?: number) {
+  hasAccess(telegramId: string, ownerId: string): { allowed: boolean; usedToken: boolean } {
+    if (telegramId === ownerId) return { allowed: true, usedToken: false };
+    if (this.isEliteActive(telegramId)) return { allowed: true, usedToken: false };
+    const u = this.users[telegramId];
+    if (u && u.tokens > 0) {
+      u.tokens -= 1;
+      this.saveUsers();
+      return { allowed: true, usedToken: true };
+    }
+    return { allowed: false, usedToken: false };
+  }
+
+  checkAccessWithoutConsuming(telegramId: string, ownerId: string): boolean {
+    if (telegramId === ownerId) return true;
+    if (this.isEliteActive(telegramId)) return true;
+    const u = this.users[telegramId];
+    if (u && u.tokens > 0) return true;
+    return false;
+  }
+
+  getTokens(telegramId: string): number {
+    return this.users[telegramId]?.tokens || 0;
+  }
+
+  setPending(telegramId: string) {
     const u = this.users[telegramId];
     if (!u) return;
-    u.isVip = true;
-    if (days) {
-      const exp = new Date();
-      exp.setDate(exp.getDate() + days);
-      u.vipExpiresAt = exp.toISOString();
-    } else {
-      u.vipExpiresAt = undefined;
-    }
+    u.pending = true;
     this.saveUsers();
   }
 
-  removeVip(telegramId: string) {
+  clearPending(telegramId: string) {
     const u = this.users[telegramId];
     if (!u) return;
-    u.isVip = false;
-    u.vipExpiresAt = undefined;
+    u.pending = false;
     this.saveUsers();
+  }
+
+  getPendingUsers(): User[] {
+    return Object.values(this.users).filter(u => u.pending);
   }
 
   banUser(telegramId: string) {
@@ -181,23 +240,23 @@ export class Storage {
   }
 
   getConfig(): Config { return this.config; }
-
   setNetflixLocked(v: boolean) { this.config.netflixLocked = v; this.saveConfig(); }
-  setReferralBonus(v: number) { this.config.referralBonus = v; this.saveConfig(); }
 
   getStats() {
     const users = Object.values(this.users);
     const today = this.getTodayStr();
     const checksToday = users.reduce((s, u) => s + (u.lastCheckDate === today ? u.dailyChecks : 0), 0);
-    const vipCount = users.filter(u => this.isVip(u.telegramId)).length;
+    const eliteCount = users.filter(u => this.isEliteActive(u.telegramId)).length;
     const bannedCount = users.filter(u => u.isBanned).length;
     const totalReferrals = users.reduce((s, u) => s + (u.referralCount || 0), 0);
+    const pendingCount = users.filter(u => u.pending).length;
     return {
       totalUsers: users.length,
       checksToday,
-      activeVips: vipCount,
+      eliteMembers: eliteCount,
       bannedUsers: bannedCount,
       totalReferrals,
+      pendingPayments: pendingCount,
     };
   }
 }
