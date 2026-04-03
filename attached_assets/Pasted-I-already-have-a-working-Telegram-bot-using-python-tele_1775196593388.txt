@@ -1,0 +1,101 @@
+I already have a working Telegram bot using python-telegram-bot.
+Do NOT create a new bot. Modify my existing code.
+
+Add subscription, roles, referral, token system, and MANUAL ACCESS control.
+
+Core idea:
+Users pay me in USDT manually. I (owner) decide who gets access.
+
+================================
+1) Roles
+- Owner (from ENV: OWNER_ID) → unlimited access
+- Elite Member → 30 days access
+- Free User → limited by tokens
+
+================================
+2) Subscription Plan
+- Only 1 plan: $4 per month
+- Payment method: USDT TRC20
+- Bot shows USDT address from ENV: USDT_ADDRESS
+- User sends /paid after payment (no TXID required)
+- Owner manually grants access
+
+================================
+3) Manual Access Commands (Owner only)
+
+/grant user_id
+→ set role = elite
+→ expiry = now + 30 days
+
+/extend user_id days
+→ extend expiry
+
+/revoke user_id
+→ remove elite access
+
+/pending
+→ list users who sent /paid
+
+================================
+4) Referral System
+- Referral link: t.me/<bot>?start=ref_userid
+- If new user joins with referral:
+    referrer gets 3 tokens
+- 1 token = 1 free usage
+- Max free usage = 3
+
+================================
+5) Access Control Middleware
+
+Before any protected command:
+
+if user_id == OWNER_ID → allow
+elif role == elite and not expired → allow
+elif tokens > 0:
+    tokens -= 1
+    allow
+else:
+    deny and show subscription message
+
+================================
+6) Commands
+
+/start → show profile
+    User ID
+    Role (Owner / Elite / Free)
+    Expiry (if elite)
+    Tokens left
+
+/plan → show subscription info + USDT address
+
+/paid → mark user as pending payment
+
+/ref → show referral link
+
+/tokens → show tokens left
+
+================================
+7) Database (SQLite)
+
+users(
+ user_id INTEGER PRIMARY KEY,
+ role TEXT,
+ expiry TEXT,
+ tokens INTEGER DEFAULT 0,
+ referred_by INTEGER,
+ pending INTEGER DEFAULT 0
+)
+
+================================
+8) Environment variables
+
+BOT_TOKEN
+OWNER_ID
+USDT_ADDRESS
+
+================================
+9) Important
+Do NOT change my existing bot features.
+Just add this system cleanly into main.py.
+
+Write full production-ready code.
