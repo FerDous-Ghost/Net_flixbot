@@ -20,13 +20,14 @@
     "username": "",
     "firstName": "Nibir",
     "joinedAt": "2026-04-03T06:26:26.423Z",
-    "role": "free",
+    "role": "elite",
+    "expiry": "2026-05-03T07:10:48.992Z",
     "tokens": 0,
     "isBanned": false,
     "dailyChecks": 0,
     "lastCheckDate": "",
+    "referredBy": "1366712263",
     "referralCount": 0,
-    "pending": true,
-    "referredBy": "1366712263"
+    "pending": false
   }
 }
