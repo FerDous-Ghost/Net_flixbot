@@ -626,6 +626,95 @@ export function setupBot() {
     );
   });
 
+  bot.onText(/\/ck(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from!.id;
+    const username = msg.from?.username || "";
+    const firstName = msg.from?.first_name || "";
+    storage.getOrCreateUser(String(userId), username, firstName);
+
+    if (storage.isBanned(String(userId))) return;
+
+    const rawCookie = (match?.[1] || "").trim();
+    if (!rawCookie) {
+      return bot.sendMessage(chatId,
+        `📖 <b>Usage:</b> <code>/ck NetflixIDValue</code>\n\nExample:\n<code>/ck eyJhbGciOiJSUzI1NiJ9...</code>`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const access = storage.hasAccess(String(userId), OWNER_ID);
+    if (!access.allowed) {
+      return bot.sendMessage(chatId, noAccessMessage(), {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "💎 Subscribe", callback_data: "plan" }]] }
+      });
+    }
+    if (access.usedToken) {
+      await bot.sendMessage(chatId, `🎟️ Used 1 token. Remaining: ${storage.getTokens(String(userId))}`);
+    }
+
+    const cookie = cleanCookie(rawCookie);
+    const statusMsg = await bot.sendMessage(chatId, `🔑 Checking token...`, { parse_mode: "HTML" });
+    const result = await checkNetflixCookie(cookie);
+    storage.addDailyChecks(String(userId), 1);
+
+    try { await bot.deleteMessage(chatId, statusMsg.message_id); } catch {}
+
+    if (result.success && result.token) {
+      const flag = getCountryFlag(result.country || "");
+      const emailLine = result.email ? `📧 <b>Email:</b> <code>${esc(result.email)}</code>\n` : "";
+      await bot.sendMessage(chatId,
+        `🔑 <b>Token Result</b>\n${"─".repeat(25)}\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n${emailLine}\n🔑 <code>${esc(result.token)}</code>\n\n📱 <b>Mobile:</b> <a href="https://netflix.com/unsupported?nftoken=${esc(result.token)}">Login (Mobile)</a>\n💻 <b>PC:</b> <a href="https://netflix.com/account?nftoken=${esc(result.token)}">Login (PC)</a>\n\n<i>by @ghost5698</i>`,
+        { parse_mode: "HTML", disable_web_page_preview: true }
+      );
+    } else {
+      await bot.sendMessage(chatId, `❌ <b>Dead/Invalid cookie</b>\n${esc(result.error || "No token found")}`, { parse_mode: "HTML" });
+    }
+  });
+
+  bot.onText(/\/ck2(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from!.id;
+    const username = msg.from?.username || "";
+    const firstName = msg.from?.first_name || "";
+    storage.getOrCreateUser(String(userId), username, firstName);
+
+    if (storage.isBanned(String(userId))) return;
+
+    const rawCookie = (match?.[1] || "").trim();
+    if (!rawCookie) {
+      return bot.sendMessage(chatId,
+        `📖 <b>Usage:</b> <code>/ck2 NetflixIDValue</code>\n\nExample:\n<code>/ck2 eyJhbGciOiJSUzI1NiJ9...</code>`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const access = storage.hasAccess(String(userId), OWNER_ID);
+    if (!access.allowed) {
+      return bot.sendMessage(chatId, noAccessMessage(), {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "💎 Subscribe", callback_data: "plan" }]] }
+      });
+    }
+    if (access.usedToken) {
+      await bot.sendMessage(chatId, `🎟️ Used 1 token. Remaining: ${storage.getTokens(String(userId))}`);
+    }
+
+    const cookie = cleanCookie(rawCookie);
+    const statusMsg = await bot.sendMessage(chatId, `🔴 Running full check...`, { parse_mode: "HTML" });
+    const result = await checkNetflixCookie(cookie);
+    storage.addDailyChecks(String(userId), 1);
+
+    try { await bot.deleteMessage(chatId, statusMsg.message_id); } catch {}
+
+    if (result.success && result.token) {
+      await bot.sendMessage(chatId, formatNFHit(result, 1), { parse_mode: "HTML", disable_web_page_preview: true });
+    } else {
+      await bot.sendMessage(chatId, `❌ <b>Dead/Invalid cookie</b>\n${esc(result.error || "No token found")}`, { parse_mode: "HTML" });
+    }
+  });
+
   bot.onText(/\/cancel/, async (msg) => {
     const userId = msg.from!.id;
     if (pending[userId]) {
