@@ -12,7 +12,10 @@
     "dailyChecks": 11,
     "lastCheckDate": "2026-04-07",
     "referralCount": 1,
-    "pending": false
+    "pending": false,
+    "totalChecks": 0,
+    "totalHits": 0,
+    "totalDead": 0
   },
   "7964947521": {
     "id": "7964947521",
@@ -28,6 +31,9 @@
     "lastCheckDate": "",
     "referredBy": "1366712263",
     "referralCount": 0,
-    "pending": false
+    "pending": false,
+    "totalChecks": 0,
+    "totalHits": 0,
+    "totalDead": 0
   }
 }

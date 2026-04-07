@@ -15,8 +15,8 @@ const CHANNELS = [
   { url: "https://t.me/+zBedda3BFAphZjIx", id: "" },
 ];
 
-function buildProfileText(u: any, storage: any, userId: string): string {
-  const role = getRoleLabel(userId);
+function buildProfileText(u: any, storage: any, userId: string, roleLabel: string): string {
+  const role = roleLabel;
   const hits = u.totalHits || 0;
   const dead = u.totalDead || 0;
   const checks = u.totalChecks || 0;
@@ -826,7 +826,7 @@ export function setupBot() {
     if (!u) {
       return bot.sendMessage(chatId, "❌ Profile not found. Send /start first.");
     }
-    await bot.sendMessage(chatId, buildProfileText(u, storage, String(userId)), {
+    await bot.sendMessage(chatId, buildProfileText(u, storage, String(userId), getRoleLabel(String(userId))), {
       parse_mode: "HTML",
       reply_markup: { inline_keyboard: [[{ text: "🔗 Referral Link", callback_data: "referral" }, { text: "🎟️ Tokens", callback_data: "tokens" }], [{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
     });
@@ -1129,7 +1129,7 @@ export function setupBot() {
       if (!u) {
         return bot.sendMessage(chatId, "❌ Profile not found. Send /start first.");
       }
-      return bot.sendMessage(chatId, buildProfileText(u, storage, String(userId)), {
+      return bot.sendMessage(chatId, buildProfileText(u, storage, String(userId), getRoleLabel(String(userId))), {
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: [[{ text: "🔗 Referral Link", callback_data: "referral" }, { text: "🎟️ Tokens", callback_data: "tokens" }], [{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
       });
