@@ -134,8 +134,9 @@ export function setupBot() {
     } catch { return "🌍"; }
   }
 
-  function esc(s: string): string {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function esc(s: any): string {
+    if (s === null || s === undefined) return "";
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   function cleanCookie(raw: string): string {
