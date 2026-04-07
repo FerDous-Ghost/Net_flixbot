@@ -20,6 +20,8 @@ export interface User {
   referredBy?: string;
   referralCount: number;
   pending: boolean;
+  totalChecks: number;
+  totalHits: number;
 }
 
 interface Config {
@@ -62,6 +64,8 @@ export class Storage {
         referredBy: u.referredBy,
         referralCount: u.referralCount || 0,
         pending: u.pending || false,
+        totalChecks: u.totalChecks || 0,
+        totalHits: u.totalHits || 0,
       };
     }
     const cfg = loadJson("config.json", { netflixLocked: false });
@@ -91,6 +95,8 @@ export class Storage {
       lastCheckDate: "",
       referralCount: 0,
       pending: false,
+      totalChecks: 0,
+      totalHits: 0,
     };
     if (referredBy && referredBy !== telegramId && this.users[referredBy]) {
       user.referredBy = referredBy;
@@ -130,6 +136,14 @@ export class Storage {
       u.lastCheckDate = today;
     }
     u.dailyChecks += count;
+    u.totalChecks = (u.totalChecks || 0) + count;
+    this.saveUsers();
+  }
+
+  addHit(telegramId: string) {
+    const u = this.users[telegramId];
+    if (!u) return;
+    u.totalHits = (u.totalHits || 0) + 1;
     this.saveUsers();
   }
 

@@ -20,6 +20,7 @@ export function setupBot() {
   const storage = new Storage();
   const pending: Record<number, { action: string }> = {};
   const cancelled = new Set<number>();
+  const autocheckCookies: Record<string, string> = {};
   let botUsername = "";
 
   console.log("🔑 NF Token Bot initializing...");
@@ -88,12 +89,23 @@ export function setupBot() {
 
   function mainMenu(): TelegramBot.InlineKeyboardButton[][] {
     return [
-      [{ text: "🔑 NF Token Checker", callback_data: "nf_token" }],
-      [{ text: "🔴 Netflix Full Check", callback_data: "nf_checker" }],
-      [{ text: "👤 My Profile", callback_data: "profile" }],
-      [{ text: "💎 Subscription Plan", callback_data: "plan" }],
+      [{ text: "🔑 NF Token Checker", callback_data: "nf_token" }, { text: "🔴 Full Check", callback_data: "nf_checker" }],
+      [{ text: "👤 My Profile", callback_data: "profile" }, { text: "💎 Subscribe", callback_data: "plan" }],
       [{ text: "🔗 Referral Link", callback_data: "referral" }, { text: "🎟️ My Tokens", callback_data: "tokens" }],
+      [{ text: "📚 Help & Commands", callback_data: "help" }],
     ];
+  }
+
+  function getQualityBadge(plan: string, country: string): string {
+    const p = (plan || "").toLowerCase();
+    const premiumCountries = ["US", "GB", "DE", "FR", "CA", "AU", "JP", "KR", "NL", "SE", "NO", "DK"];
+    const isPremiumCountry = premiumCountries.includes(country || "");
+    if (p.includes("premium") || p.includes("ultra") || p.includes("4k")) {
+      return isPremiumCountry ? "🥇 Premium+" : "🥇 Premium";
+    }
+    if (p.includes("standard")) return "🥈 Standard";
+    if (p.includes("basic") || p.includes("mobile")) return "🥉 Basic";
+    return "🎯 Active";
   }
 
   function adminMenu(): TelegramBot.InlineKeyboardButton[][] {
@@ -421,7 +433,8 @@ export function setupBot() {
 
   function formatNFHit(h: NFCheckResult, idx: number): string {
     const flag = getCountryFlag(h.country || "");
-    let msg = `✅ <b>Hit #${idx}</b>\n${"─".repeat(25)}\n`;
+    const badge = getQualityBadge(h.plan || "", h.country || "");
+    let msg = `✅ <b>Hit #${idx}</b> ${badge}\n${"─".repeat(25)}\n`;
     msg += `${flag} <b>Country:</b> ${esc(h.countryName || h.country || "Unknown")}\n`;
     msg += `📦 <b>Plan:</b> ${esc(h.plan || "Unknown")}\n`;
     if (h.price) msg += `💰 <b>Price:</b> ${esc(h.price)}\n`;
@@ -663,10 +676,12 @@ export function setupBot() {
     try { await bot.deleteMessage(chatId, statusMsg.message_id); } catch {}
 
     if (result.success && result.token) {
+      storage.addHit(String(userId));
       const flag = getCountryFlag(result.country || "");
+      const badge = getQualityBadge(result.plan || "", result.country || "");
       const emailLine = result.email ? `📧 <b>Email:</b> <code>${esc(result.email)}</code>\n` : "";
       await bot.sendMessage(chatId,
-        `🔑 <b>Token Result</b>\n${"─".repeat(25)}\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n${emailLine}\n🔑 <code>${esc(result.token)}</code>\n\n📱 <b>Mobile:</b> <a href="https://netflix.com/unsupported?nftoken=${esc(result.token)}">Login (Mobile)</a>\n💻 <b>PC:</b> <a href="https://netflix.com/account?nftoken=${esc(result.token)}">Login (PC)</a>\n\n<i>by @ghost5698</i>`,
+        `🔑 <b>Token Result</b> ${badge}\n${"─".repeat(25)}\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n${emailLine}\n🔑 <code>${esc(result.token)}</code>\n\n📱 <b>Mobile:</b> <a href="https://netflix.com/unsupported?nftoken=${esc(result.token)}">Login (Mobile)</a>\n💻 <b>PC:</b> <a href="https://netflix.com/account?nftoken=${esc(result.token)}">Login (PC)</a>\n\n<i>by @ghost5698</i>`,
         { parse_mode: "HTML", disable_web_page_preview: true }
       );
     } else {
@@ -710,10 +725,50 @@ export function setupBot() {
     try { await bot.deleteMessage(chatId, statusMsg.message_id); } catch {}
 
     if (result.success && result.token) {
+      storage.addHit(String(userId));
       await bot.sendMessage(chatId, formatNFHit(result, 1), { parse_mode: "HTML", disable_web_page_preview: true });
     } else {
       await bot.sendMessage(chatId, `❌ <b>Dead/Invalid cookie</b>\n${esc(result.error || "No token found")}`, { parse_mode: "HTML" });
     }
+  });
+
+  bot.onText(/\/help/, async (msg) => {
+    const chatId = msg.chat.id;
+    await bot.sendMessage(chatId,
+      `📚 <b>All Commands</b>\n${"─".repeat(30)}\n\n` +
+      `<b>🔍 Checking:</b>\n` +
+      `▫️ /ck <code>NetflixID</code> — Token only (fast)\n` +
+      `▫️ /ck2 <code>NetflixID</code> — Full details\n\n` +
+      `<b>💎 Subscription:</b>\n` +
+      `▫️ /plan — View Elite plan & pricing\n` +
+      `▫️ /paid — Mark payment as sent\n\n` +
+      `<b>👤 Account:</b>\n` +
+      `▫️ /ref — Your referral link\n` +
+      `▫️ /tokens — Check your token balance\n` +
+      `▫️ /cancel — Cancel current check\n\n` +
+      `<b>🔑 How it works:</b>\n` +
+      `• New users get <b>3 free tokens</b>\n` +
+      `• 1 token = 1 check session\n` +
+      `• Refer a friend = +3 tokens\n` +
+      `• Elite = unlimited checks ($5/mo)\n\n` +
+      `<b>📊 Quality Badges:</b>\n` +
+      `🥇 Premium / Premium+\n` +
+      `🥈 Standard\n` +
+      `🥉 Basic\n` +
+      `🎯 Active (unknown plan)\n\n` +
+      `<i>Powered by @ghost5698</i>`,
+      { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Main Menu", callback_data: "main_menu" }]] } }
+    );
+  });
+
+  bot.onText(/\/ping/, async (msg) => {
+    const start = Date.now();
+    const sentMsg = await bot.sendMessage(msg.chat.id, "🏓 Pinging...");
+    const latency = Date.now() - start;
+    await bot.editMessageText(
+      `🏓 <b>Pong!</b>\n⚡ Latency: <b>${latency}ms</b>\n✅ Bot is online`,
+      { chat_id: msg.chat.id, message_id: sentMsg.message_id, parse_mode: "HTML" }
+    );
   });
 
   bot.onText(/\/cancel/, async (msg) => {
@@ -803,6 +858,50 @@ export function setupBot() {
 
     if (data === "cancel_check") {
       cancelled.add(userId);
+      return;
+    }
+
+    if (data.startsWith("act_") || data.startsWith("acf_")) {
+      const isToken = data.startsWith("act_");
+      const ackId = data.substring(4);
+      const cookie = autocheckCookies[ackId];
+      if (!cookie) {
+        return bot.sendMessage(chatId, "⏰ This check expired. Please paste your cookie again.");
+      }
+      delete autocheckCookies[ackId];
+
+      const access = storage.hasAccess(String(userId), OWNER_ID);
+      if (!access.allowed) {
+        return bot.sendMessage(chatId, noAccessMessage(), {
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[{ text: "💎 Subscribe", callback_data: "plan" }]] }
+        });
+      }
+      if (access.usedToken) {
+        await bot.sendMessage(chatId, `🎟️ Used 1 token. Remaining: ${storage.getTokens(String(userId))}`);
+      }
+
+      const statusMsg = await bot.sendMessage(chatId, isToken ? `🔑 Checking token...` : `🔴 Running full check...`, { parse_mode: "HTML" });
+      const result = await checkNetflixCookie(cookie);
+      storage.addDailyChecks(String(userId), 1);
+      try { await bot.deleteMessage(chatId, statusMsg.message_id); } catch {}
+
+      if (result.success && result.token) {
+        storage.addHit(String(userId));
+        if (isToken) {
+          const flag = getCountryFlag(result.country || "");
+          const badge = getQualityBadge(result.plan || "", result.country || "");
+          const emailLine = result.email ? `📧 <b>Email:</b> <code>${esc(result.email)}</code>\n` : "";
+          await bot.sendMessage(chatId,
+            `🔑 <b>Token Result</b> ${badge}\n${"─".repeat(25)}\n${flag} ${esc(result.countryName || "Unknown")} | ${esc(result.plan || "Unknown")}\n${emailLine}\n🔑 <code>${esc(result.token)}</code>\n\n📱 <b>Mobile:</b> <a href="https://netflix.com/unsupported?nftoken=${esc(result.token)}">Login (Mobile)</a>\n💻 <b>PC:</b> <a href="https://netflix.com/account?nftoken=${esc(result.token)}">Login (PC)</a>\n\n<i>by @ghost5698</i>`,
+            { parse_mode: "HTML", disable_web_page_preview: true }
+          );
+        } else {
+          await bot.sendMessage(chatId, formatNFHit(result, 1), { parse_mode: "HTML", disable_web_page_preview: true });
+        }
+      } else {
+        await bot.sendMessage(chatId, `❌ <b>Dead/Invalid cookie</b>\n${esc(result.error || "No token found")}`, { parse_mode: "HTML" });
+      }
       return;
     }
 
@@ -936,6 +1035,33 @@ export function setupBot() {
       );
     }
 
+    if (data === "help") {
+      let text = `📚 <b>All Commands</b>\n${"─".repeat(30)}\n\n`;
+      text += `<b>🔍 Checking:</b>\n`;
+      text += `▫️ /ck <code>NetflixID</code> — Token only (fast)\n`;
+      text += `▫️ /ck2 <code>NetflixID</code> — Full details\n\n`;
+      text += `<b>💎 Subscription:</b>\n`;
+      text += `▫️ /plan — View Elite plan & pricing\n`;
+      text += `▫️ /paid — Mark payment as sent\n\n`;
+      text += `<b>👤 Account:</b>\n`;
+      text += `▫️ /ref — Your referral link\n`;
+      text += `▫️ /tokens — Check your token balance\n`;
+      text += `▫️ /ping — Check bot status\n`;
+      text += `▫️ /cancel — Cancel current check\n\n`;
+      text += `<b>🔑 How it works:</b>\n`;
+      text += `• New users get <b>3 free tokens</b>\n`;
+      text += `• 1 token = 1 check session\n`;
+      text += `• Refer a friend = +3 tokens\n`;
+      text += `• Elite = unlimited checks ($5/mo)\n\n`;
+      text += `<b>📊 Quality Badges:</b>\n`;
+      text += `🥇 Premium / Premium+\n🥈 Standard\n🥉 Basic\n🎯 Active\n\n`;
+      text += `<i>Powered by @ghost5698</i>`;
+      return bot.sendMessage(chatId, text, {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
+      });
+    }
+
     if (data === "profile") {
       const u = storage.getUser(String(userId));
       if (!u) {
@@ -951,11 +1077,14 @@ export function setupBot() {
       if (storage.isEliteActive(String(userId)) && u.expiry) {
         text += `⏳ <b>Expires:</b> ${new Date(u.expiry).toLocaleDateString()}\n`;
       }
+      text += `\n📊 <b>Your Stats:</b>\n`;
+      text += `🔍 <b>Total Checks:</b> ${u.totalChecks || 0}\n`;
+      text += `✅ <b>Total Hits:</b> ${u.totalHits || 0}\n`;
       text += `🎟️ <b>Tokens:</b> ${u.tokens}\n`;
       text += `👥 <b>Referrals:</b> ${u.referralCount || 0}\n`;
       return bot.sendMessage(chatId, text, {
         parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
+        reply_markup: { inline_keyboard: [[{ text: "🔗 Referral Link", callback_data: "referral" }, { text: "🎟️ Tokens", callback_data: "tokens" }], [{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
       });
     }
 
@@ -1120,6 +1249,32 @@ export function setupBot() {
     if (text.startsWith("/")) return;
 
     const userPending = pending[userId];
+
+    if (!userPending && !msg.document && text.length >= 20) {
+      const cleaned = cleanCookie(text.trim());
+      const looksLikeCookie = cleaned.length >= 20 && !cleaned.includes(" ") && !cleaned.includes("\n");
+      if (looksLikeCookie && storage.getUser(String(userId))) {
+        const ackId = `${userId}_${Date.now()}`;
+        autocheckCookies[ackId] = cleaned;
+        setTimeout(() => { delete autocheckCookies[ackId]; }, 5 * 60 * 1000);
+        return bot.sendMessage(chatId,
+          `🍪 <b>Cookie detected!</b>\n\nWhich check do you want to run?\n\n<code>${esc(cleaned.substring(0, 40))}...</code>`,
+          {
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "🔑 Token Only (fast)", callback_data: `act_${ackId}` },
+                  { text: "🔴 Full Check", callback_data: `acf_${ackId}` }
+                ],
+                [{ text: "❌ Dismiss", callback_data: "main_menu" }]
+              ]
+            }
+          }
+        );
+      }
+    }
+
     if (!userPending) return;
 
     if (userPending.action === "admin_broadcast" && isOwner(userId)) {
