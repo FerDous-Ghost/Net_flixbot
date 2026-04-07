@@ -15,6 +15,38 @@ const CHANNELS = [
   { url: "https://t.me/+zBedda3BFAphZjIx", id: "" },
 ];
 
+function buildProfileText(u: any, storage: any, userId: string): string {
+  const role = getRoleLabel(userId);
+  const hits = u.totalHits || 0;
+  const dead = u.totalDead || 0;
+  const checks = u.totalChecks || 0;
+  const hitRate = checks > 0 ? ((hits / checks) * 100).toFixed(1) : "0.0";
+  const deadRate = checks > 0 ? ((dead / checks) * 100).toFixed(1) : "0.0";
+  const daysSinceJoin = Math.floor((Date.now() - new Date(u.joinedAt).getTime()) / (1000 * 60 * 60 * 24));
+  const avgPerDay = daysSinceJoin > 0 ? (checks / daysSinceJoin).toFixed(1) : checks;
+
+  let text = `👤 <b>Your Profile</b>\n${"─".repeat(30)}\n\n`;
+  text += `🆔 <b>ID:</b> <code>${u.telegramId}</code>\n`;
+  text += `👤 <b>Name:</b> ${esc(u.firstName)}\n`;
+  if (u.username) text += `📛 <b>Username:</b> @${esc(u.username)}\n`;
+  text += `📅 <b>Joined:</b> ${new Date(u.joinedAt).toLocaleDateString()} (${daysSinceJoin}d ago)\n`;
+  text += `${role}\n`;
+  if (storage.isEliteActive(userId) && u.expiry) {
+    const daysLeft = Math.max(0, Math.ceil((u.expiry - Date.now()) / (1000 * 60 * 60 * 24)));
+    text += `⏳ <b>Expires:</b> ${new Date(u.expiry).toLocaleDateString()} (${daysLeft}d left)\n`;
+  }
+  text += `\n📊 <b>Check Stats:</b>\n`;
+  text += `🔍 <b>Total Checks:</b> ${checks}\n`;
+  text += `✅ <b>Hits:</b> ${hits} (${hitRate}% hit rate)\n`;
+  text += `❌ <b>Dead:</b> ${dead} (${deadRate}% dead rate)\n`;
+  text += `📈 <b>Avg/Day:</b> ${avgPerDay} checks\n`;
+  text += `\n💰 <b>Account:</b>\n`;
+  text += `🎟️ <b>Tokens:</b> ${u.tokens}\n`;
+  text += `👥 <b>Referrals:</b> ${u.referralCount || 0}\n`;
+  if (u.referredBy) text += `🔗 <b>Referred by:</b> <code>${u.referredBy}</code>\n`;
+  return text;
+}
+
 export function setupBot() {
   const bot = new TelegramBot(BOT_TOKEN, { polling: true });
   const storage = new Storage();
@@ -28,6 +60,19 @@ export function setupBot() {
   bot.getMe().then(me => {
     botUsername = me.username || "";
     console.log(`✅ NF Token Bot running: @${me.username}`);
+    bot.setMyCommands([
+      { command: "start",   description: "🏠 Main menu" },
+      { command: "profile", description: "👤 View your profile & stats" },
+      { command: "ck",      description: "🔑 Token check (fast) — paste cookie" },
+      { command: "ck2",     description: "🔴 Full check — paste cookie" },
+      { command: "plan",    description: "💎 View Elite plan & pricing" },
+      { command: "paid",    description: "💳 Notify payment sent" },
+      { command: "ref",     description: "🔗 Your referral link" },
+      { command: "tokens",  description: "🎟️ Check token balance" },
+      { command: "help",    description: "📚 All commands & guide" },
+      { command: "ping",    description: "🏓 Check bot latency" },
+      { command: "cancel",  description: "⛔ Cancel current check" },
+    ]).catch(() => {});
   });
 
   const uncheckableChannels = new Set<string>();
@@ -685,6 +730,7 @@ export function setupBot() {
         { parse_mode: "HTML", disable_web_page_preview: true }
       );
     } else {
+      storage.addDead(String(userId));
       await bot.sendMessage(chatId, `❌ <b>Dead/Invalid cookie</b>\n${esc(result.error || "No token found")}`, { parse_mode: "HTML" });
     }
   });
@@ -728,6 +774,7 @@ export function setupBot() {
       storage.addHit(String(userId));
       await bot.sendMessage(chatId, formatNFHit(result, 1), { parse_mode: "HTML", disable_web_page_preview: true });
     } else {
+      storage.addDead(String(userId));
       await bot.sendMessage(chatId, `❌ <b>Dead/Invalid cookie</b>\n${esc(result.error || "No token found")}`, { parse_mode: "HTML" });
     }
   });
@@ -769,6 +816,20 @@ export function setupBot() {
       `🏓 <b>Pong!</b>\n⚡ Latency: <b>${latency}ms</b>\n✅ Bot is online`,
       { chat_id: msg.chat.id, message_id: sentMsg.message_id, parse_mode: "HTML" }
     );
+  });
+
+  bot.onText(/\/profile/, async (msg) => {
+    if (!msg.from || msg.chat.type !== "private") return;
+    const userId = msg.from.id;
+    const chatId = msg.chat.id;
+    const u = storage.getUser(String(userId));
+    if (!u) {
+      return bot.sendMessage(chatId, "❌ Profile not found. Send /start first.");
+    }
+    await bot.sendMessage(chatId, buildProfileText(u, storage, String(userId)), {
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: [[{ text: "🔗 Referral Link", callback_data: "referral" }, { text: "🎟️ Tokens", callback_data: "tokens" }], [{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
+    });
   });
 
   bot.onText(/\/cancel/, async (msg) => {
@@ -900,6 +961,7 @@ export function setupBot() {
           await bot.sendMessage(chatId, formatNFHit(result, 1), { parse_mode: "HTML", disable_web_page_preview: true });
         }
       } else {
+        storage.addDead(String(userId));
         await bot.sendMessage(chatId, `❌ <b>Dead/Invalid cookie</b>\n${esc(result.error || "No token found")}`, { parse_mode: "HTML" });
       }
       return;
@@ -1067,22 +1129,7 @@ export function setupBot() {
       if (!u) {
         return bot.sendMessage(chatId, "❌ Profile not found. Send /start first.");
       }
-      const role = getRoleLabel(String(userId));
-      let text = `👤 <b>Your Profile</b>\n${"─".repeat(30)}\n\n`;
-      text += `🆔 <b>ID:</b> <code>${u.telegramId}</code>\n`;
-      text += `👤 <b>Name:</b> ${esc(u.firstName)}\n`;
-      if (u.username) text += `📛 <b>Username:</b> @${esc(u.username)}\n`;
-      text += `📅 <b>Joined:</b> ${new Date(u.joinedAt).toLocaleDateString()}\n`;
-      text += `${role}\n`;
-      if (storage.isEliteActive(String(userId)) && u.expiry) {
-        text += `⏳ <b>Expires:</b> ${new Date(u.expiry).toLocaleDateString()}\n`;
-      }
-      text += `\n📊 <b>Your Stats:</b>\n`;
-      text += `🔍 <b>Total Checks:</b> ${u.totalChecks || 0}\n`;
-      text += `✅ <b>Total Hits:</b> ${u.totalHits || 0}\n`;
-      text += `🎟️ <b>Tokens:</b> ${u.tokens}\n`;
-      text += `👥 <b>Referrals:</b> ${u.referralCount || 0}\n`;
-      return bot.sendMessage(chatId, text, {
+      return bot.sendMessage(chatId, buildProfileText(u, storage, String(userId)), {
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: [[{ text: "🔗 Referral Link", callback_data: "referral" }, { text: "🎟️ Tokens", callback_data: "tokens" }], [{ text: "🔙 Main Menu", callback_data: "main_menu" }]] }
       });
@@ -1377,6 +1424,8 @@ export function setupBot() {
       }
 
       storage.addDailyChecks(String(userId), stopped ? hits + dead : cookies.length);
+      for (let i = 0; i < hits; i++) storage.addHit(String(userId));
+      for (let i = 0; i < dead; i++) storage.addDead(String(userId));
 
       try {
         await bot.editMessageText(
@@ -1462,6 +1511,8 @@ export function setupBot() {
       }
 
       storage.addDailyChecks(String(userId), stopped ? hits + dead : cookies.length);
+      for (let i = 0; i < hits; i++) storage.addHit(String(userId));
+      for (let i = 0; i < dead; i++) storage.addDead(String(userId));
 
       try {
         await bot.editMessageText(

@@ -22,6 +22,7 @@ export interface User {
   pending: boolean;
   totalChecks: number;
   totalHits: number;
+  totalDead: number;
 }
 
 interface Config {
@@ -66,6 +67,7 @@ export class Storage {
         pending: u.pending || false,
         totalChecks: u.totalChecks || 0,
         totalHits: u.totalHits || 0,
+        totalDead: u.totalDead || 0,
       };
     }
     const cfg = loadJson("config.json", { netflixLocked: false });
@@ -97,6 +99,7 @@ export class Storage {
       pending: false,
       totalChecks: 0,
       totalHits: 0,
+      totalDead: 0,
     };
     if (referredBy && referredBy !== telegramId && this.users[referredBy]) {
       user.referredBy = referredBy;
@@ -144,6 +147,13 @@ export class Storage {
     const u = this.users[telegramId];
     if (!u) return;
     u.totalHits = (u.totalHits || 0) + 1;
+    this.saveUsers();
+  }
+
+  addDead(telegramId: string) {
+    const u = this.users[telegramId];
+    if (!u) return;
+    u.totalDead = (u.totalDead || 0) + 1;
     this.saveUsers();
   }
 
