@@ -9,13 +9,13 @@
     "expiry": "2026-05-03T06:26:26.190Z",
     "tokens": 3,
     "isBanned": false,
-    "dailyChecks": 0,
+    "dailyChecks": 1,
     "lastCheckDate": "2026-04-09",
     "referralCount": 1,
-    "pending": false,
-    "totalChecks": 0,
+    "pending": true,
+    "totalChecks": 1,
     "totalHits": 0,
-    "totalDead": 0
+    "totalDead": 1
   },
   "7964947521": {
     "id": "7964947521",
