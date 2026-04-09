@@ -214,12 +214,9 @@ export function setupBot() {
       const trimmed = line.trim();
       if (!trimmed || trimmed.length < 10) continue;
       if (trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
-      const parts = trimmed.split(/[,\t|]+/);
-      for (const part of parts) {
-        const cleaned = cleanCookie(part);
-        if (cleaned.length >= 10) {
-          cookies.push(cleaned);
-        }
+      const cleaned = cleanCookie(trimmed);
+      if (cleaned.length >= 10) {
+        cookies.push(cleaned);
       }
     }
     return cookies;
@@ -851,6 +848,13 @@ export function setupBot() {
       `🛡️ <b>Admin Panel</b>\n${"─".repeat(30)}`,
       { parse_mode: "HTML", reply_markup: { inline_keyboard: adminMenu() } }
     );
+  });
+
+  bot.onText(/\/resetstats (.+)/, async (msg, match) => {
+    if (!isOwner(msg.from!.id)) return;
+    const targetId = match![1].trim();
+    storage.resetStats(targetId);
+    await bot.sendMessage(msg.chat.id, `✅ Stats reset for user <code>${targetId}</code> (hits, dead, checks all set to 0).`, { parse_mode: "HTML" });
   });
 
   bot.onText(/\/grant (.+)/, async (msg, match) => {

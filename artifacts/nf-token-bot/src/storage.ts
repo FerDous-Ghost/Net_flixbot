@@ -157,6 +157,16 @@ export class Storage {
     this.saveUsers();
   }
 
+  resetStats(telegramId: string) {
+    const u = this.users[telegramId];
+    if (!u) return;
+    u.totalChecks = 0;
+    u.totalHits = 0;
+    u.totalDead = 0;
+    u.dailyChecks = 0;
+    this.saveUsers();
+  }
+
   grantElite(telegramId: string, days: number = 30) {
     const u = this.users[telegramId];
     if (!u) return;
