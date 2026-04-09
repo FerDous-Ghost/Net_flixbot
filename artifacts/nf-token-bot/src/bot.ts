@@ -15,6 +15,11 @@ const CHANNELS = [
   { url: "https://t.me/+zBedda3BFAphZjIx", id: "" },
 ];
 
+function esc(s: any): string {
+  if (s === null || s === undefined) return "";
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function buildProfileText(u: any, storage: any, userId: string, roleLabel: string): string {
   const role = roleLabel;
   const hits = u.totalHits || 0;
@@ -191,10 +196,7 @@ export function setupBot() {
     } catch { return "🌍"; }
   }
 
-  function esc(s: any): string {
-    if (s === null || s === undefined) return "";
-    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
+
 
   function cleanCookie(raw: string): string {
     let c = raw.trim();

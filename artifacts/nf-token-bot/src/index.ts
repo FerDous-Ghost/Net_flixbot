@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { setupBot } from "./bot";
 import * as http from "http";
+import * as https from "https";
 
 setupBot();
 
@@ -17,3 +18,20 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`NF Token Bot health check on port ${PORT}`);
 });
+
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+if (RENDER_URL) {
+  const pingUrl = `${RENDER_URL}/healthz`;
+  const interval = 14 * 60 * 1000;
+  setInterval(() => {
+    const mod = pingUrl.startsWith("https") ? https : http;
+    mod.get(pingUrl, (res) => {
+      console.log(`🏓 Keep-alive ping → ${res.statusCode}`);
+    }).on("error", (err) => {
+      console.warn(`⚠️ Keep-alive ping failed: ${err.message}`);
+    });
+  }, interval);
+  console.log(`🔁 Keep-alive enabled → pinging ${pingUrl} every 14 min`);
+} else {
+  console.log("ℹ️ RENDER_EXTERNAL_URL not set — keep-alive disabled (local mode)");
+}
