@@ -1,31 +1,32 @@
 kind = "api"
-previewPath = "/api"
-title = "API Server"
-version = "1.0.0"
-id = "3B4_FFSkEVBkAeYMFRJ2e"
+  previewPath = "/api"
+  title = "API Server"
+  version = "1.0.0"
+  id = "3B4_FFSkEVBkAeYMFRJ2e"
 
-[[services]]
-localPort = 8080
-name = "API Server"
-paths = ["/api"]
+  [[services]]
+  localPort = 8080
+  name = "API Server"
+  paths = ["/api"]
 
-[services.development]
-run = "pnpm --filter @workspace/api-server run dev"
+  [services.development]
+  run = "pnpm --filter @workspace/api-server run dev"
 
-[services.production]
+  [services.production]
 
-[services.production.build]
-args = ["sh", "-c", "pnpm --filter @workspace/api-server run build && cd artifacts/telegram-bot && pnpm build"]
+  [services.production.build]
+  args = ["sh", "-c", "pnpm --filter @workspace/api-server run build && cd artifacts/nf-token-bot && pnpm install && pnpm build"]
 
-[services.production.build.env]
-NODE_ENV = "production"
+  [services.production.build.env]
+  NODE_ENV = "production"
 
-[services.production.run]
-args = ["node", "--enable-source-maps", "scripts/start-production.mjs"]
+  [services.production.run]
+  args = ["sh", "-c", "cd artifacts/nf-token-bot && node dist/index.js"]
 
-[services.production.run.env]
-PORT = "8080"
-NODE_ENV = "production"
+  [services.production.run.env]
+  PORT = "8080"
+  NODE_ENV = "production"
 
-[services.production.health.startup]
-path = "/api/healthz"
+  [services.production.health.startup]
+  path = "/healthz"
+  
